@@ -16,7 +16,6 @@ struct PlexSettings: Codable {
     var plexUserID: Int?
     var plexAccountUUID: String?
     var plexAccountEmail: String?
-    var onlyShowMySessions: Bool = true
 
     var isTokenValid: Bool {
         // Don't check artificial expiration dates - let the actual API calls determine validity

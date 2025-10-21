@@ -32,6 +32,9 @@ struct MainView: View {
     @State private var showingActorDetail = false
     @State private var showingPosterDetail = false
 
+    // Session switcher
+    @State private var isSessionMenuPresented = false
+
     // Actor selection state
     @State private var selectedActorName = ""
     @State private var pendingActorName = ""
@@ -96,6 +99,9 @@ struct MainView: View {
                 }
                 .frame(height: 70) // make the inset content just overlay at the bottom
             }
+            .overlay(alignment: .bottomTrailing) {
+                sessionSwitcher
+            }
             .onAppear {
                 Task {
                     await plexService.fetchSessions()
@@ -106,9 +112,13 @@ struct MainView: View {
                 metadataTask?.cancel()
             }
             .onChange(of: plexService.selectedSessionIndex) { _ in
+                isSessionMenuPresented = false
                 loadMovieMetadata()
             }
-            .onChange(of: plexService.activeVideoSessions.count) { _ in
+            .onChange(of: plexService.activeVideoSessions.count) { newCount in
+                if newCount <= 1 {
+                    isSessionMenuPresented = false
+                }
                 loadMovieMetadata()
             }
             .onChange(of: movieMetadata?.id) { _ in
@@ -193,6 +203,26 @@ private extension MainView {
             } else {
                 placeholderState
             }
+        }
+    }
+
+    @ViewBuilder
+    var sessionSwitcher: some View {
+        if plexService.activeVideoSessions.isEmpty {
+            EmptyView()
+        } else {
+            SessionSwitcherControl(
+                sessions: plexService.activeVideoSessions,
+                selectedIndex: plexService.selectedSessionIndex,
+                otherCount: plexService.otherActiveVideoSessionsCount,
+                isPresented: $isSessionMenuPresented,
+                isOwned: { plexService.isOwned(videoSession: $0) },
+                onSelect: { index in
+                    plexService.selectedSessionIndex = index
+                }
+            )
+            .padding(.trailing, 20)
+            .padding(.bottom, 90 + safeAreaBottomInset)
         }
     }
 
@@ -416,6 +446,144 @@ private struct BottomSectionBar: View {
 
 }
 
+private struct SessionSwitcherControl: View {
+    let sessions: [VideoSession]
+    let selectedIndex: Int
+    let otherCount: Int
+    @Binding var isPresented: Bool
+    let isOwned: (VideoSession) -> Bool
+    let onSelect: (Int) -> Void
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 12) {
+            if isPresented {
+                sessionMenu
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+
+            switcherButton
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isPresented)
+    }
+
+    private var switcherButton: some View {
+        Button {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+                isPresented.toggle()
+            }
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Circle()
+                    .fill(Theme.Colors.surface.opacity(0.95))
+                    .frame(width: 56, height: 56)
+                    .shadow(color: Theme.Colors.background.opacity(0.45), radius: 12, x: 0, y: 10)
+                    .overlay(
+                        Image(systemName: "rectangle.stack.person.crop")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundColor(Theme.Colors.primaryAccent)
+                    )
+
+                if otherCount > 0 {
+                    Text("\(otherCount)")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Theme.Colors.background)
+                        .padding(6)
+                        .background(
+                            Circle()
+                                .fill(Theme.Colors.primaryAccent)
+                        )
+                        .offset(x: 16, y: -10)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Active streams")
+        .accessibilityHint("Shows a menu of other active streams")
+        .accessibilityValue(otherCount > 0 ? "\(otherCount) other streams" : "No other streams")
+    }
+
+    private var sessionMenu: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
+                Button {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+                        isPresented = false
+                    }
+                    onSelect(index)
+                } label: {
+                    sessionRow(for: session, index: index)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: 260)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Theme.Colors.surface.opacity(0.94))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Theme.Colors.highlight.opacity(0.18), lineWidth: 1)
+                )
+        )
+        .shadow(color: Theme.Colors.background.opacity(0.35), radius: 14, x: 0, y: 10)
+    }
+
+    private func sessionRow(for session: VideoSession, index: Int) -> some View {
+        let isSelected = index == selectedIndex
+        let ownedByUser = isOwned(session)
+
+        return HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(session.title ?? "Unknown Title")
+                    .font(Theme.Typography.body)
+                    .foregroundColor(Theme.Colors.text)
+                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    if let userTitle = session.user?.title {
+                        Text(ownedByUser ? "You" : userTitle)
+                            .font(Theme.Typography.caption)
+                            .fontWeight(ownedByUser ? .semibold : .regular)
+                            .foregroundColor(ownedByUser ? Theme.Colors.secondaryAccent : Theme.Colors.highlight)
+                    }
+
+                    if let state = session.player?.state?.capitalized {
+                        Text(state)
+                            .font(Theme.Typography.caption)
+                            .foregroundColor(state.lowercased() == "playing" ? Theme.Colors.secondaryAccent : Theme.Colors.highlight)
+                    }
+                }
+
+                if let device = session.player?.title {
+                    Text(device)
+                        .font(Theme.Typography.caption)
+                        .foregroundColor(Theme.Colors.highlight)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(Theme.Colors.primaryAccent)
+            }
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(isSelected ? Theme.Colors.surface.opacity(0.97) : Theme.Colors.surface.opacity(0.8))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(isSelected ? Theme.Colors.primaryAccent.opacity(0.7) : Color.clear, lineWidth: 1.2)
+        )
+    }
+}
+
 
 #if os(iOS)
 private var safeAreaBottomInset: CGFloat {
@@ -626,45 +794,36 @@ private extension MainView {
     func refreshSessions() async {
         print("🔄 MainView: Pull-to-refresh triggered")
 
-        let videoSessionsBeforeRefresh = plexService.activeVideoSessions
-        let currentSessionIndex = plexService.selectedSessionIndex
-
         await plexService.fetchSessions()
 
-        let videoSessionsAfterRefresh = plexService.activeVideoSessions
+        let updatedSessions = plexService.activeVideoSessions
 
-        print("🔄 Sessions before refresh: \(videoSessionsBeforeRefresh.count)")
-        print("🔄 Sessions after refresh: \(videoSessionsAfterRefresh.count)")
-        print("🔄 Current selected index: \(currentSessionIndex)")
+        print("🔄 Sessions after refresh: \(updatedSessions.count)")
+        print("🔄 Current selected index: \(plexService.selectedSessionIndex)")
 
-        if videoSessionsAfterRefresh.isEmpty {
+        if updatedSessions.isEmpty {
             plexService.selectedSessionIndex = 0
             movieMetadata = nil
             isLoading = false
+            isSessionMenuPresented = false
             return
-        } else if videoSessionsAfterRefresh.count == 1 {
-            plexService.selectedSessionIndex = 0
-            loadMovieMetadata()
-        } else {
-            if currentSessionIndex < videoSessionsAfterRefresh.count {
-                loadMovieMetadata()
-            } else {
-                plexService.selectedSessionIndex = 0
-                loadMovieMetadata()
-            }
         }
+
+        if updatedSessions.count <= 1 {
+            isSessionMenuPresented = false
+        }
+
+        loadMovieMetadata()
     }
 
     func loadMovieMetadata() {
-        let videoSessions = plexService.activeVideoSessions
-        guard plexService.selectedSessionIndex < videoSessions.count else {
-            print("⚠️ selectedSessionIndex \(plexService.selectedSessionIndex) is out of bounds for \(videoSessions.count) sessions")
+        guard let currentSession = plexService.selectedVideoSession else {
+            print("⚠️ No selected session available for metadata fetch")
             movieMetadata = nil
             isLoading = false
             return
         }
 
-        let currentSession = videoSessions[plexService.selectedSessionIndex]
         print("🎬 Loading metadata for session \(plexService.selectedSessionIndex): \(currentSession.title ?? "Unknown")")
 
         metadataTask?.cancel()

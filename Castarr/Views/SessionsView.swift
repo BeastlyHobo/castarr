@@ -43,12 +43,13 @@ struct SessionsView: View {
             }
 
             // Video Sessions Section
-            if let videoSessions = sessionsResponse.mediaContainer.video, !videoSessions.isEmpty {
+            if !plexService.activeVideoSessions.isEmpty {
                 Section("Video Sessions") {
-                    ForEach(Array(videoSessions.enumerated()), id: \.element.id) { index, session in
+                    ForEach(Array(plexService.activeVideoSessions.enumerated()), id: \.element.id) { index, session in
                         VideoSessionView(
                             session: session,
                             isSelected: index == selectedSessionIndex,
+                            isOwnedByCurrentUser: plexService.isOwned(videoSession: session),
                             onTap: {
                                 selectedSessionIndex = index
                             }
@@ -109,6 +110,7 @@ struct SessionsView: View {
 struct VideoSessionView: View {
     let session: VideoSession
     let isSelected: Bool
+    let isOwnedByCurrentUser: Bool
     let onTap: () -> Void
 
     var body: some View {
@@ -152,13 +154,14 @@ struct VideoSessionView: View {
             // User and Player info
             VStack(alignment: .leading, spacing: 2) {
                 if let user = session.user {
-                    HStack {
+                    HStack(spacing: 6) {
                         Text("User:")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        Text(user.title)
+                        Text(isOwnedByCurrentUser ? "You" : user.title)
                             .font(.caption)
-                            .foregroundColor(.primary)
+                            .fontWeight(isOwnedByCurrentUser ? .semibold : .regular)
+                            .foregroundColor(isOwnedByCurrentUser ? Theme.Colors.secondaryAccent : .primary)
                         Spacer()
                     }
                 }

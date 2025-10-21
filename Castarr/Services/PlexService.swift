@@ -132,7 +132,6 @@ class PlexService: ObservableObject {
             settings.plexUserID = 0
             settings.plexAccountUUID = nil
             settings.plexAccountEmail = normalizedEmail
-            settings.onlyShowMySessions = true
             settings.serverIP = "192.168.1.100"
             settings.tokenExpirationDate = nil
             saveSettings()
@@ -141,6 +140,8 @@ class PlexService: ObservableObject {
             sessions = demoService.createMockSessionsResponse()
             movieMetadata = demoService.createMockMovieMetadata()
             activities = demoService.createMockActivitiesResponse()
+            let demoVideoSessions = sessions?.mediaContainer.video ?? []
+            reconcileSelectedVideoSession(with: demoVideoSessions, previousSelectedSessionID: nil)
             print("✅ Demo mode login successful for user: \(email)")
         } else {
             errorMessage = "Invalid demo account credentials"
@@ -309,7 +310,6 @@ class PlexService: ObservableObject {
         settings.plexUserID = nil
         settings.plexAccountUUID = nil
         settings.plexAccountEmail = nil
-        settings.onlyShowMySessions = true
         settings.tokenExpirationDate = nil
         saveSettings()
         isLoggedIn = false
@@ -521,6 +521,12 @@ class PlexService: ObservableObject {
             throw PlexError.notAuthenticated
         }
 
+        let previousSelectedSessionID: String? = {
+            let sessions = activeVideoSessions
+            guard sessions.indices.contains(selectedSessionIndex) else { return nil }
+            return sessions[selectedSessionIndex].id
+        }()
+
         // Try HTTPS first (recommended for external connections), then fallback to HTTP
         let protocols = ["https", "http"]
         var lastError: Error?
@@ -569,6 +575,8 @@ class PlexService: ObservableObject {
                 let sessionsResponse = try parseSessionsXML(data: data)
                 await MainActor.run {
                     self.sessions = sessionsResponse
+                    let newVideoSessions = sessionsResponse.mediaContainer.video ?? []
+                    self.reconcileSelectedVideoSession(with: newVideoSessions, previousSelectedSessionID: previousSelectedSessionID)
                 }
                 return sessionsResponse
 
@@ -595,7 +603,14 @@ class PlexService: ObservableObject {
         if isDemoMode {
             print("🎬 Demo mode: Skipping session fetch, using mock data")
             await MainActor.run {
+                let previousSelectedID: String? = {
+                    let sessions = self.activeVideoSessions
+                    guard sessions.indices.contains(self.selectedSessionIndex) else { return nil }
+                    return sessions[self.selectedSessionIndex].id
+                }()
                 self.sessions = demoService.createMockSessionsResponse()
+                let newVideoSessions = self.sessions?.mediaContainer.video ?? []
+                self.reconcileSelectedVideoSession(with: newVideoSessions, previousSelectedSessionID: previousSelectedID)
                 self.isLoading = false
                 self.errorMessage = nil
             }
@@ -781,30 +796,66 @@ class PlexService: ObservableObject {
 
     var activeVideoSessions: [VideoSession] {
         let allSessions = sessions?.mediaContainer.video ?? []
-        return filteredVideoSessions(allSessions)
+        return prioritizeVideoSessions(allSessions)
     }
 
     var activeTrackSessions: [TrackSession] {
-        let allTracks = sessions?.mediaContainer.track ?? []
-        return filteredTrackSessions(allTracks)
+        sessions?.mediaContainer.track ?? []
     }
 
-    private func filteredVideoSessions(_ sessions: [VideoSession]) -> [VideoSession] {
-        guard settings.onlyShowMySessions else { return sessions }
-        let filtered = sessions.filter { isOwnedSession($0.user) }
-        if filtered.isEmpty {
-            logUnmatchedSessions(sessions.map { ($0.user, $0.player?.title, $0.player?.address, $0.id) }, context: "video")
-        }
-        return filtered
+    var selectedVideoSession: VideoSession? {
+        guard activeVideoSessions.indices.contains(selectedSessionIndex) else { return nil }
+        return activeVideoSessions[selectedSessionIndex]
     }
 
-    private func filteredTrackSessions(_ sessions: [TrackSession]) -> [TrackSession] {
-        guard settings.onlyShowMySessions else { return sessions }
-        let filtered = sessions.filter { isOwnedSession($0.user) }
-        if filtered.isEmpty {
-            logUnmatchedSessions(sessions.map { ($0.user, $0.player?.title, $0.player?.address, $0.id) }, context: "track")
+    var otherActiveVideoSessionsCount: Int {
+        let total = activeVideoSessions.count
+        return total > 0 ? max(total - 1, 0) : 0
+    }
+
+    func isOwned(videoSession: VideoSession) -> Bool {
+        isOwnedSession(videoSession.user)
+    }
+
+    private func prioritizeVideoSessions(_ sessions: [VideoSession]) -> [VideoSession] {
+        guard !sessions.isEmpty else { return [] }
+
+        var owned: [VideoSession] = []
+        var others: [VideoSession] = []
+
+        for session in sessions {
+            if isOwnedSession(session.user) {
+                owned.append(session)
+            } else {
+                others.append(session)
+            }
         }
-        return filtered
+
+        return owned + others
+    }
+
+    private func reconcileSelectedVideoSession(with newVideoSessions: [VideoSession], previousSelectedSessionID: String?) {
+        let prioritizedSessions = prioritizeVideoSessions(newVideoSessions)
+
+        guard !prioritizedSessions.isEmpty else {
+            selectedSessionIndex = 0
+            return
+        }
+
+        if let previousID = previousSelectedSessionID,
+           let preservedIndex = prioritizedSessions.firstIndex(where: { $0.id == previousID }) {
+            selectedSessionIndex = preservedIndex
+            return
+        }
+
+        if let ownedIndex = prioritizedSessions.firstIndex(where: { isOwnedSession($0.user) }) {
+            selectedSessionIndex = ownedIndex
+            return
+        }
+
+        if selectedSessionIndex >= prioritizedSessions.count {
+            selectedSessionIndex = max(prioritizedSessions.count - 1, 0)
+        }
     }
 
     private func isOwnedSession(_ sessionUser: SessionUser?) -> Bool {
