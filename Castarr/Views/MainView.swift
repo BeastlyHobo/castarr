@@ -37,7 +37,7 @@ struct MainView: View {
             } else {
                 // Fallback background
                 LinearGradient(
-                    colors: [Color.black.opacity(0.1), Color.gray.opacity(0.05)],
+                    colors: [Theme.Colors.background, Theme.Colors.surface.opacity(0.9)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -49,15 +49,17 @@ struct MainView: View {
                     if isLoading {
                         ProgressView("Loading movie details...")
                             .padding()
+                            .progressViewStyle(CircularProgressViewStyle(tint: Theme.Colors.primaryAccent))
                     } else if let errorMessage = errorMessage {
                         Text("Error: \(errorMessage)")
-                            .foregroundColor(.red)
+                            .foregroundColor(Theme.Colors.error)
                             .padding()
                     } else {
                         content
                     }
                 }
                 .padding(.top, 2)
+                .foregroundColor(Theme.Colors.text)
             }
             .refreshable {
                 await refreshSessions()
@@ -143,7 +145,7 @@ struct MainView: View {
             VStack(spacing: 16) {
                 Image(systemName: "tv.slash")
                     .font(.system(size: 48))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.Colors.highlight)
 
                 Text("No Active Sessions")
                     .font(.title2)
@@ -151,7 +153,7 @@ struct MainView: View {
 
                 Text("Start playing something on your Plex server to see details here.")
                     .font(.body)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Theme.Colors.highlight)
                     .multilineTextAlignment(.center)
             }
             .padding()
@@ -163,7 +165,11 @@ struct MainView: View {
             // Movie title - redesigned to be more compact and elegant
             ZStack {
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(.regularMaterial)
+                    .fill(Theme.Colors.surface.opacity(0.9))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Theme.Colors.highlight.opacity(0.15), lineWidth: 1)
+                    )
                     .onTapGesture {
                         print("🎬 MainView: Movie title tapped")
                         withAnimation(.easeInOut(duration: 0.3)) {
@@ -176,13 +182,13 @@ struct MainView: View {
                     Text(movie.title ?? "Unknown Title")
                         .font(.title2)
                         .fontWeight(.semibold)
-                        .foregroundColor(.primary)
+                        .foregroundColor(Theme.Colors.text)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     Image(systemName: "chevron.down")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Theme.Colors.highlight)
                         .opacity(0.6)
                         .rotationEffect(.degrees(isMovieInfoExpanded ? 180 : 0))
                         .animation(.easeInOut(duration: 0.3), value: isMovieInfoExpanded)
@@ -209,7 +215,7 @@ struct MainView: View {
                                         .aspectRatio(2/3, contentMode: .fit)
                                 } placeholder: {
                                     Rectangle()
-                                        .foregroundColor(.gray.opacity(0.3))
+                                        .foregroundColor(Theme.Colors.surface.opacity(0.6))
                                         .aspectRatio(2/3, contentMode: .fit)
                                 }
                                 .frame(width: 80)
@@ -223,23 +229,19 @@ struct MainView: View {
                                     if let year = movie.year {
                                         Text(String(year))
                                             .font(.subheadline)
-                                            .foregroundColor(.secondary)
+                                            .foregroundColor(Theme.Colors.highlight)
                                     }
 
                                     if let contentRating = movie.contentRating {
                                         Text(contentRating)
-                                            .font(.caption)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(Color.gray.opacity(0.2))
-                                            .cornerRadius(3)
+                                            .themeTag(accent: Theme.Colors.secondaryAccent)
                                     }
                                 }
 
                                 if let duration = movie.duration {
                                     Text(formatTime(duration))
                                         .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(Theme.Colors.highlight)
                                 }
 
                                 // Ratings section
@@ -254,7 +256,7 @@ struct MainView: View {
                                 } else {
                                     Text("No ratings available")
                                         .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(Theme.Colors.highlight)
                                         .onAppear {
                                             print("🎭 MainView: No ratings to display - ratings: \(movie.ratings?.count ?? 0)")
                                         }
@@ -297,8 +299,14 @@ struct MainView: View {
                     }
                 }
                 .padding()
-                .background(.thickMaterial)
-                .cornerRadius(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Theme.Colors.surface.opacity(0.92))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Theme.Colors.highlight.opacity(0.12), lineWidth: 1)
+                        )
+                )
             }
 
             // Cast section - always visible with refined spacing
@@ -324,11 +332,11 @@ struct MainView: View {
                                 let isFresh = (rating.value ?? 0) >= 6.0
                                 Text("🍅")
                                     .font(.caption)
-                                    .foregroundColor(isFresh ? .red : .green)
+                                    .foregroundColor(isFresh ? Theme.Colors.primaryAccent : Theme.Colors.highlight)
                             } else {
                                 // Audience rating - keep person icon
                                 Image(systemName: "person.fill")
-                                    .foregroundColor(.orange)
+                                    .foregroundColor(Theme.Colors.secondaryAccent)
                                     .font(.caption)
                             }
 
@@ -340,7 +348,7 @@ struct MainView: View {
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color(.systemGray6).opacity(0.6))
+                        .background(Theme.Colors.surface.opacity(0.8))
                         .cornerRadius(6)
                     }
                     Spacer()
@@ -355,7 +363,7 @@ struct MainView: View {
                                     Text("IMDb")
                                         .font(.caption2)
                                         .fontWeight(.bold)
-                                        .foregroundColor(.yellow)
+                                        .foregroundColor(Theme.Colors.primaryAccent)
                                 }
                             }
 
@@ -367,7 +375,7 @@ struct MainView: View {
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color(.systemGray6).opacity(0.6))
+                        .background(Theme.Colors.surface.opacity(0.8))
                         .cornerRadius(6)
                     }
                     Spacer()
@@ -389,13 +397,7 @@ struct MainView: View {
 
             SimpleFlowLayout(genres, spacing: 8) { genre in
                 Text(genre.tag)
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.blue.opacity(0.2))
-                    .foregroundColor(.blue)
-                    .cornerRadius(16)
+                    .themeTag(accent: Theme.Colors.secondaryAccent)
             }
         }
     }
@@ -407,13 +409,7 @@ struct MainView: View {
 
             SimpleFlowLayout(countries, spacing: 8) { country in
                 Text(country.tag)
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.green.opacity(0.2))
-                    .foregroundColor(.green)
-                    .cornerRadius(16)
+                    .themeTag(accent: Theme.Colors.primaryAccent)
             }
         }
     }
@@ -434,21 +430,21 @@ struct MainView: View {
                                     .aspectRatio(contentMode: .fill)
                             case .failure(_):
                                 Image(systemName: "person.fill")
-                                    .foregroundColor(.gray.opacity(0.6))
+                                    .foregroundColor(Theme.Colors.highlight)
                                     .font(.title2)
                             case .empty:
                                 Image(systemName: "person.fill")
-                                    .foregroundColor(.gray.opacity(0.6))
+                                    .foregroundColor(Theme.Colors.highlight)
                                     .font(.title2)
                             @unknown default:
                                 Image(systemName: "person.fill")
-                                    .foregroundColor(.gray.opacity(0.6))
+                                    .foregroundColor(Theme.Colors.highlight)
                                     .font(.title2)
                             }
                         }
                         .frame(width: 40, height: 40)
                         .clipShape(Circle())
-                        .background(Circle().fill(Color.gray.opacity(0.1)))
+                        .background(Circle().fill(Theme.Colors.surface.opacity(0.6)))
 
                         Text(director.tag)
                             .font(.subheadline)
@@ -458,7 +454,7 @@ struct MainView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color(.systemGray6).opacity(0.6))
+                    .background(Theme.Colors.surface.opacity(0.8))
                     .cornerRadius(8)
                 }
             }
@@ -481,21 +477,21 @@ struct MainView: View {
                                     .aspectRatio(contentMode: .fill)
                             case .failure(_):
                                 Image(systemName: "person.fill")
-                                    .foregroundColor(.gray.opacity(0.6))
+                                    .foregroundColor(Theme.Colors.highlight)
                                     .font(.title2)
                             case .empty:
                                 Image(systemName: "person.fill")
-                                    .foregroundColor(.gray.opacity(0.6))
+                                    .foregroundColor(Theme.Colors.highlight)
                                     .font(.title2)
                             @unknown default:
                                 Image(systemName: "person.fill")
-                                    .foregroundColor(.gray.opacity(0.6))
+                                    .foregroundColor(Theme.Colors.highlight)
                                     .font(.title2)
                             }
                         }
                         .frame(width: 40, height: 40)
                         .clipShape(Circle())
-                        .background(Circle().fill(Color.gray.opacity(0.1)))
+                        .background(Circle().fill(Theme.Colors.surface.opacity(0.6)))
 
                         Text(writer.tag)
                             .font(.subheadline)
@@ -505,7 +501,7 @@ struct MainView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color(.systemGray6).opacity(0.6))
+                    .background(Theme.Colors.surface.opacity(0.8))
                     .cornerRadius(8)
                 }
             }
@@ -598,27 +594,28 @@ struct MainView: View {
                                         .clipped()
                                 case .failure(_):
                                     Rectangle()
-                                        .foregroundColor(.gray.opacity(0.3))
+                                        .foregroundColor(Theme.Colors.surface.opacity(0.85))
                                         .frame(width: cardImageWidth, height: cardImageHeight)
                                         .overlay(
                                             Image(systemName: "person.fill")
-                                                .foregroundColor(.gray.opacity(0.6))
+                                                .foregroundColor(Theme.Colors.highlight)
                                                 .font(.system(size: 32))
                                         )
                                 case .empty:
                                     Rectangle()
-                                        .foregroundColor(.gray.opacity(0.3))
+                                        .foregroundColor(Theme.Colors.surface.opacity(0.85))
                                         .frame(width: cardImageWidth, height: cardImageHeight)
                                         .overlay(
                                             ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle(tint: Theme.Colors.primaryAccent))
                                         )
                                 @unknown default:
                                     Rectangle()
-                                        .foregroundColor(.gray.opacity(0.3))
+                                        .foregroundColor(Theme.Colors.surface.opacity(0.85))
                                         .frame(width: cardImageWidth, height: cardImageHeight)
                                         .overlay(
                                             Image(systemName: "person.fill")
-                                                .foregroundColor(.gray.opacity(0.6))
+                                                .foregroundColor(Theme.Colors.highlight)
                                                 .font(.system(size: 32))
                                         )
                                 }
@@ -629,14 +626,14 @@ struct MainView: View {
                                 Text(role.tag)
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
-                                    .foregroundColor(.primary)
+                                    .foregroundColor(Theme.Colors.text)
                                     .lineLimit(2)
                                     .multilineTextAlignment(.leading)
 
                                 if let character = role.role {
                                     Text(character)
                                         .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(Theme.Colors.highlight)
                                         .lineLimit(2)
                                         .multilineTextAlignment(.leading)
                                 }
@@ -644,8 +641,12 @@ struct MainView: View {
                         }
                         .padding(12)
                         .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(.thickMaterial)
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Theme.Colors.surface.opacity(0.92))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(Theme.Colors.highlight.opacity(0.1), lineWidth: 1)
+                                )
                         )
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -827,35 +828,6 @@ struct MainView: View {
     }
 }
 
-// Color extension to handle hex colors
-extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            (a, r, g, b) = (255, 0, 0, 0)
-        }
-
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue:  Double(b) / 255,
-            opacity: Double(a) / 255
-        )
-    }
-}
-
-
 // Simplified flow layout for pill-shaped items (iOS 15 compatible)
 struct SimpleFlowLayout<Data: RandomAccessCollection, Content: View>: View where Data.Element: Identifiable {
     let items: Data
@@ -928,7 +900,7 @@ struct PosterDetailView: View {
                                 .aspectRatio(contentMode: .fit)
                         } placeholder: {
                             Rectangle()
-                                .foregroundColor(.gray.opacity(0.3))
+                                .foregroundColor(Theme.Colors.highlight.opacity(0.8))
                                 .aspectRatio(2/3, contentMode: .fit)
                                 .overlay(
                                     ProgressView()
@@ -964,4 +936,3 @@ struct PosterDetailView: View {
 }
 
 // Custom modifier to conditionally apply frame dimensions  
-
