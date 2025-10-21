@@ -44,7 +44,7 @@ struct LoginView: View {
         VStack(spacing: 16) {
             Image(systemName: "tv.and.hifispeaker.fill")
                 .font(.system(size: 60))
-                .foregroundColor(Theme.Colors.primaryAccent)
+                .foregroundColor(Theme.Colors.secondaryAccent)
 
             Text("Login to Plex")
                 .font(Theme.Typography.title)

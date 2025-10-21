@@ -24,38 +24,38 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		074F18FB2E38017700221B80 /* RoleCall.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RoleCall.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		074F19082E38017800221B80 /* RoleCallTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RoleCallTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		074F19122E38017800221B80 /* RoleCallUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RoleCallUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		074F18FB2E38017700221B80 /* Castarr.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Castarr.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		074F19082E38017800221B80 /* CastarrTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CastarrTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		074F19122E38017800221B80 /* CastarrUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CastarrUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		079CC1CA2E3AAEB0002FBE53 /* Exceptions for "RoleCall" folder in "RoleCall" target */ = {
+		079CC1CA2E3AAEB0002FBE53 /* Exceptions for "Castarr" folder in "Castarr" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 074F18FA2E38017700221B80 /* RoleCall */;
+			target = 074F18FA2E38017700221B80 /* Castarr */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		074F18FD2E38017700221B80 /* RoleCall */ = {
+		074F18FD2E38017700221B80 /* Castarr */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				079CC1CA2E3AAEB0002FBE53 /* Exceptions for "RoleCall" folder in "RoleCall" target */,
+				079CC1CA2E3AAEB0002FBE53 /* Exceptions for "Castarr" folder in "Castarr" target */,
 			);
-			path = RoleCall;
+			path = Castarr;
 			sourceTree = "<group>";
 		};
-		074F190B2E38017800221B80 /* RoleCallTests */ = {
+		074F190B2E38017800221B80 /* CastarrTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = RoleCallTests;
+			path = CastarrTests;
 			sourceTree = "<group>";
 		};
-		074F19152E38017800221B80 /* RoleCallUITests */ = {
+		074F19152E38017800221B80 /* CastarrUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = RoleCallUITests;
+			path = CastarrUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -88,9 +88,9 @@
 		074F18F22E38017700221B80 = {
 			isa = PBXGroup;
 			children = (
-				074F18FD2E38017700221B80 /* RoleCall */,
-				074F190B2E38017800221B80 /* RoleCallTests */,
-				074F19152E38017800221B80 /* RoleCallUITests */,
+				074F18FD2E38017700221B80 /* Castarr */,
+				074F190B2E38017800221B80 /* CastarrTests */,
+				074F19152E38017800221B80 /* CastarrUITests */,
 				074F18FC2E38017700221B80 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -98,9 +98,9 @@
 		074F18FC2E38017700221B80 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				074F18FB2E38017700221B80 /* RoleCall.app */,
-				074F19082E38017800221B80 /* RoleCallTests.xctest */,
-				074F19122E38017800221B80 /* RoleCallUITests.xctest */,
+				074F18FB2E38017700221B80 /* Castarr.app */,
+				074F19082E38017800221B80 /* CastarrTests.xctest */,
+				074F19122E38017800221B80 /* CastarrUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -108,9 +108,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		074F18FA2E38017700221B80 /* RoleCall */ = {
+		074F18FA2E38017700221B80 /* Castarr */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 074F191C2E38017800221B80 /* Build configuration list for PBXNativeTarget "RoleCall" */;
+			buildConfigurationList = 074F191C2E38017800221B80 /* Build configuration list for PBXNativeTarget "Castarr" */;
 			buildPhases = (
 				074F18F72E38017700221B80 /* Sources */,
 				074F18F82E38017700221B80 /* Frameworks */,
@@ -121,18 +121,18 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				074F18FD2E38017700221B80 /* RoleCall */,
+				074F18FD2E38017700221B80 /* Castarr */,
 			);
-			name = RoleCall;
+			name = Castarr;
 			packageProductDependencies = (
 			);
 			productName = RoleCall;
-			productReference = 074F18FB2E38017700221B80 /* RoleCall.app */;
+			productReference = 074F18FB2E38017700221B80 /* Castarr.app */;
 			productType = "com.apple.product-type.application";
 		};
-		074F19072E38017800221B80 /* RoleCallTests */ = {
+		074F19072E38017800221B80 /* CastarrTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 074F191F2E38017800221B80 /* Build configuration list for PBXNativeTarget "RoleCallTests" */;
+			buildConfigurationList = 074F191F2E38017800221B80 /* Build configuration list for PBXNativeTarget "CastarrTests" */;
 			buildPhases = (
 				074F19042E38017800221B80 /* Sources */,
 				074F19052E38017800221B80 /* Frameworks */,
@@ -144,18 +144,18 @@
 				074F190A2E38017800221B80 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				074F190B2E38017800221B80 /* RoleCallTests */,
+				074F190B2E38017800221B80 /* CastarrTests */,
 			);
-			name = RoleCallTests;
+			name = CastarrTests;
 			packageProductDependencies = (
 			);
 			productName = RoleCallTests;
-			productReference = 074F19082E38017800221B80 /* RoleCallTests.xctest */;
+			productReference = 074F19082E38017800221B80 /* CastarrTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		074F19112E38017800221B80 /* RoleCallUITests */ = {
+		074F19112E38017800221B80 /* CastarrUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 074F19222E38017800221B80 /* Build configuration list for PBXNativeTarget "RoleCallUITests" */;
+			buildConfigurationList = 074F19222E38017800221B80 /* Build configuration list for PBXNativeTarget "CastarrUITests" */;
 			buildPhases = (
 				074F190E2E38017800221B80 /* Sources */,
 				074F190F2E38017800221B80 /* Frameworks */,
@@ -167,13 +167,13 @@
 				074F19142E38017800221B80 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				074F19152E38017800221B80 /* RoleCallUITests */,
+				074F19152E38017800221B80 /* CastarrUITests */,
 			);
-			name = RoleCallUITests;
+			name = CastarrUITests;
 			packageProductDependencies = (
 			);
 			productName = RoleCallUITests;
-			productReference = 074F19122E38017800221B80 /* RoleCallUITests.xctest */;
+			productReference = 074F19122E38017800221B80 /* CastarrUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -199,7 +199,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 074F18F62E38017700221B80 /* Build configuration list for PBXProject "RoleCall" */;
+			buildConfigurationList = 074F18F62E38017700221B80 /* Build configuration list for PBXProject "Castarr" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -213,9 +213,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				074F18FA2E38017700221B80 /* RoleCall */,
-				074F19072E38017800221B80 /* RoleCallTests */,
-				074F19112E38017800221B80 /* RoleCallUITests */,
+				074F18FA2E38017700221B80 /* Castarr */,
+				074F19072E38017800221B80 /* CastarrTests */,
+				074F19112E38017800221B80 /* CastarrUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -271,12 +271,12 @@
 /* Begin PBXTargetDependency section */
 		074F190A2E38017800221B80 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 074F18FA2E38017700221B80 /* RoleCall */;
+			target = 074F18FA2E38017700221B80 /* Castarr */;
 			targetProxy = 074F19092E38017800221B80 /* PBXContainerItemProxy */;
 		};
 		074F19142E38017800221B80 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 074F18FA2E38017700221B80 /* RoleCall */;
+			target = 074F18FA2E38017700221B80 /* Castarr */;
 			targetProxy = 074F19132E38017800221B80 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -415,7 +415,7 @@
 				DEVELOPMENT_TEAM = 6767FYKWM6;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = RoleCall/Info.plist;
+				INFOPLIST_FILE = Castarr/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Castarr;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
@@ -448,7 +448,7 @@
 				DEVELOPMENT_TEAM = 6767FYKWM6;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = RoleCall/Info.plist;
+				INFOPLIST_FILE = Castarr/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Castarr;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
@@ -486,7 +486,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RoleCall.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/RoleCall";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Castarr.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Castarr";
 			};
 			name = Debug;
 		};
@@ -505,7 +505,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RoleCall.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/RoleCall";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Castarr.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Castarr";
 			};
 			name = Release;
 		};
@@ -548,7 +548,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		074F18F62E38017700221B80 /* Build configuration list for PBXProject "RoleCall" */ = {
+		074F18F62E38017700221B80 /* Build configuration list for PBXProject "Castarr" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				074F191A2E38017800221B80 /* Debug */,
@@ -557,7 +557,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		074F191C2E38017800221B80 /* Build configuration list for PBXNativeTarget "RoleCall" */ = {
+		074F191C2E38017800221B80 /* Build configuration list for PBXNativeTarget "Castarr" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				074F191D2E38017800221B80 /* Debug */,
@@ -566,7 +566,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		074F191F2E38017800221B80 /* Build configuration list for PBXNativeTarget "RoleCallTests" */ = {
+		074F191F2E38017800221B80 /* Build configuration list for PBXNativeTarget "CastarrTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				074F19202E38017800221B80 /* Debug */,
@@ -575,7 +575,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		074F19222E38017800221B80 /* Build configuration list for PBXNativeTarget "RoleCallUITests" */ = {
+		074F19222E38017800221B80 /* Build configuration list for PBXNativeTarget "CastarrUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				074F19232E38017800221B80 /* Debug */,

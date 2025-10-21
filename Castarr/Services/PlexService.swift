@@ -126,18 +126,21 @@ class PlexService: ObservableObject {
         if demoService.isDemoUser(email: email) {
             print("🎬 Demo mode activated for user: \(email)")
             isDemoMode = true
+            let normalizedEmail = email.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             settings.plexToken = "demo-token-12345"
-            settings.username = email
+            settings.username = normalizedEmail
+            settings.plexUserID = 0
+            settings.plexAccountUUID = nil
+            settings.plexAccountEmail = normalizedEmail
+            settings.onlyShowMySessions = true
             settings.serverIP = "192.168.1.100"
             settings.tokenExpirationDate = nil
             saveSettings()
             isLoggedIn = true
-            
             serverCapabilities = demoService.createMockServerCapabilities()
             sessions = demoService.createMockSessionsResponse()
             movieMetadata = demoService.createMockMovieMetadata()
             activities = demoService.createMockActivitiesResponse()
-            
             print("✅ Demo mode login successful for user: \(email)")
         } else {
             errorMessage = "Invalid demo account credentials"
@@ -154,7 +157,7 @@ class PlexService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("RoleCall", forHTTPHeaderField: "X-Plex-Product")
+        request.setValue("Castarr", forHTTPHeaderField: "X-Plex-Product")
         request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
         
         let body = "strong=true"
@@ -183,7 +186,7 @@ class PlexService: ObservableObject {
         let params = [
             "clientID": clientIdentifier,
             "code": pin,
-            "context[device][product]": "RoleCall"
+            "context[device][product]": "Castarr"
         ]
         
         let queryString = params.map { key, value in
@@ -211,12 +214,14 @@ class PlexService: ObservableObject {
                         await MainActor.run {
                             settings.plexToken = token
                             settings.username = ""
+                            settings.plexUserID = nil
                             settings.tokenExpirationDate = nil
                             saveSettings()
                             isLoggedIn = true
                             isDemoMode = false
                             isLoading = false
                         }
+                        await fetchAndStoreAccountInfo()
                         return
                     }
                 } catch {
@@ -280,6 +285,7 @@ class PlexService: ObservableObject {
         Task {
             do {
                 _ = try await getServerCapabilities()
+                await fetchAndStoreAccountInfo()
                 // Token is valid, keep logged in status
             } catch {
                 // Only clear token if it's actually invalid (401), not for network issues
@@ -300,6 +306,10 @@ class PlexService: ObservableObject {
     func logout() {
         settings.plexToken = ""
         settings.username = ""
+        settings.plexUserID = nil
+        settings.plexAccountUUID = nil
+        settings.plexAccountEmail = nil
+        settings.onlyShowMySessions = true
         settings.tokenExpirationDate = nil
         saveSettings()
         isLoggedIn = false
@@ -525,7 +535,7 @@ class PlexService: ObservableObject {
             // Create a fresh request for each attempt
             var request = URLRequest(url: url)
             request.setValue("application/xml", forHTTPHeaderField: "Accept")
-            request.setValue("RoleCall/1.0", forHTTPHeaderField: "User-Agent")
+            request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
             request.timeoutInterval = 10.0 // Shorter timeout for external connections
             request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
 
@@ -766,16 +776,125 @@ class PlexService: ObservableObject {
 
     // MARK: - Helper Methods
     var hasActiveSessions: Bool {
-        guard let sessions = sessions else { return false }
-        return sessions.mediaContainer.size > 0
+        !activeVideoSessions.isEmpty
     }
 
     var activeVideoSessions: [VideoSession] {
-        return sessions?.mediaContainer.video ?? []
+        let allSessions = sessions?.mediaContainer.video ?? []
+        return filteredVideoSessions(allSessions)
     }
 
     var activeTrackSessions: [TrackSession] {
-        return sessions?.mediaContainer.track ?? []
+        let allTracks = sessions?.mediaContainer.track ?? []
+        return filteredTrackSessions(allTracks)
+    }
+
+    private func filteredVideoSessions(_ sessions: [VideoSession]) -> [VideoSession] {
+        guard settings.onlyShowMySessions else { return sessions }
+        let filtered = sessions.filter { isOwnedSession($0.user) }
+        if filtered.isEmpty {
+            logUnmatchedSessions(sessions.map { ($0.user, $0.player?.title, $0.player?.address, $0.id) }, context: "video")
+        }
+        return filtered
+    }
+
+    private func filteredTrackSessions(_ sessions: [TrackSession]) -> [TrackSession] {
+        guard settings.onlyShowMySessions else { return sessions }
+        let filtered = sessions.filter { isOwnedSession($0.user) }
+        if filtered.isEmpty {
+            logUnmatchedSessions(sessions.map { ($0.user, $0.player?.title, $0.player?.address, $0.id) }, context: "track")
+        }
+        return filtered
+    }
+
+    private func isOwnedSession(_ sessionUser: SessionUser?) -> Bool {
+        guard let sessionUser = sessionUser else { return false }
+        if let targetUUID = settings.plexAccountUUID,
+           let sessionUUID = sessionUser.uuid,
+           sessionUUID.caseInsensitiveCompare(targetUUID) == .orderedSame {
+            return true
+        }
+        if let targetID = settings.plexUserID, targetID != 0, sessionUser.id == targetID {
+            return true
+        }
+        if let targetEmail = settings.plexAccountEmail, let email = sessionUser.email,
+           normalizedIdentifier(email) == targetEmail {
+            return true
+        }
+        if !settings.username.isEmpty,
+           normalizedIdentifier(sessionUser.title) == normalizedIdentifier(settings.username) {
+            return true
+        }
+        return false
+    }
+
+    private func normalizedIdentifier(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+             .lowercased()
+             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+    }
+
+    private func logUnmatchedSessions(_ details: [(SessionUser?, String?, String?, String)], context: String) {
+        #if DEBUG
+        guard !details.isEmpty else { return }
+        print("⚠️ No \(context) sessions matched current user filter.")
+        print("   Expected ID: \(settings.plexUserID?.description ?? "nil"), UUID: \(settings.plexAccountUUID ?? "nil"), email: \(settings.plexAccountEmail ?? "nil"), username: \(settings.username)")
+        for (user, playerTitle, playerAddress, sessionID) in details {
+            if let user = user {
+                print("   • Session \(sessionID) user id=\(user.id) uuid=\(user.uuid ?? "nil") email=\(user.email ?? "nil") title=\(user.title) player=\(playerTitle ?? "nil")@\(playerAddress ?? "nil")")
+            } else {
+                print("   • Session \(sessionID) missing user, player=\(playerTitle ?? "nil")@\(playerAddress ?? "nil")")
+            }
+        }
+        #endif
+    }
+
+    private func fetchAndStoreAccountInfo() async {
+        guard !isDemoMode, !settings.plexToken.isEmpty else { return }
+
+        do {
+            let account = try await getPlexAccount()
+            let normalizedUsername = normalizedIdentifier(account.username)
+            let normalizedEmail = account.email.map { normalizedIdentifier($0) }
+            let normalizedUUID = account.uuid?.lowercased()
+            await MainActor.run {
+                settings.username = normalizedUsername
+                settings.plexUserID = account.id
+                settings.plexAccountUUID = normalizedUUID
+                settings.plexAccountEmail = normalizedEmail
+                saveSettings()
+            }
+        } catch {
+            print("⚠️ Failed to fetch Plex account info: \(error.localizedDescription)")
+        }
+    }
+
+    private func getPlexAccount() async throws -> PlexAccountResponse {
+        guard let url = URL(string: "https://plex.tv/api/v2/user") else {
+            throw PlexError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
+        request.setValue(settings.plexToken, forHTTPHeaderField: "X-Plex-Token")
+        request.timeoutInterval = 10.0
+
+        let (data, response) = try await urlSession.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw PlexError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            if httpResponse.statusCode == 401 {
+                throw PlexError.invalidToken
+            }
+            throw PlexError.serverError(httpResponse.statusCode)
+        }
+
+        return try JSONDecoder().decode(PlexAccountResponse.self, from: data)
     }
 
     // MARK: - XML Parsing
@@ -950,6 +1069,7 @@ class SessionsXMLParserDelegate: NSObject, XMLParserDelegate {
     var currentUser: SessionUser?
     var currentPlayer: SessionPlayer?
     var currentTranscodeSession: TranscodeSession?
+    var currentTechnical = MovieTechnicalInfo()
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String : String] = [:]) {
 
@@ -1002,8 +1122,10 @@ class SessionsXMLParserDelegate: NSObject, XMLParserDelegate {
             let id = Int(attributeDict["id"] ?? "0") ?? 0
             let title = attributeDict["title"] ?? ""
             let thumb = attributeDict["thumb"]
+            let uuid = attributeDict["uuid"]
+            let email = attributeDict["email"]?.lowercased()
 
-            currentUser = SessionUser(id: id, title: title, thumb: thumb)
+            currentUser = SessionUser(id: id, title: title, thumb: thumb, uuid: uuid, email: email)
 
         case "Player":
             let address = attributeDict["address"]
@@ -1074,6 +1196,7 @@ class SessionsXMLParserDelegate: NSObject, XMLParserDelegate {
             currentUser = nil
             currentPlayer = nil
             currentTranscodeSession = nil
+            currentTechnical = MovieTechnicalInfo()
 
         case "Track":
             if var session = currentTrackSession {
@@ -1093,6 +1216,7 @@ class SessionsXMLParserDelegate: NSObject, XMLParserDelegate {
             currentTrackSession = nil
             currentUser = nil
             currentPlayer = nil
+            currentTechnical = MovieTechnicalInfo()
 
         case "MediaContainer":
             let container = PlexSessionsResponse.SessionsContainer(
@@ -1120,6 +1244,7 @@ class MovieMetadataXMLParserDelegate: NSObject, XMLParserDelegate {
     private var genres: [MovieGenre] = []
     private var countries: [MovieCountry] = []
     private var movies: [MovieMetadata] = []
+    private var currentTechnical = MovieTechnicalInfo()
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String : String] = [:]) {
         currentElement = elementName
@@ -1142,6 +1267,20 @@ class MovieMetadataXMLParserDelegate: NSObject, XMLParserDelegate {
             let thumb = attributeDict["thumb"]
             let art = attributeDict["art"]
             let originallyAvailableAt = attributeDict["originallyAvailableAt"]
+            let audioChannels = Int(attributeDict["audioChannels"] ?? "")
+            let bitrate = Int(attributeDict["bitrate"] ?? "")
+            currentTechnical = MovieTechnicalInfo(
+                videoResolution: attributeDict["videoResolution"],
+                videoCodec: attributeDict["videoCodec"],
+                videoFrameRate: attributeDict["videoFrameRate"],
+                aspectRatio: attributeDict["aspectRatio"],
+                audioCodec: attributeDict["audioCodec"],
+                audioChannels: audioChannels,
+                audioProfile: attributeDict["audioProfile"],
+                container: attributeDict["container"],
+                bitrate: bitrate,
+                fileSize: Int(attributeDict["size"] ?? "")
+            )
 
             currentMovie = MovieMetadata(
                 id: id,
@@ -1151,27 +1290,79 @@ class MovieMetadataXMLParserDelegate: NSObject, XMLParserDelegate {
                 summary: summary,
                 rating: rating,
                 audienceRating: audienceRating,
-                audienceRatingImage: nil,
+                audienceRatingImage: attributeDict["audienceRatingImage"],
                 contentRating: contentRating,
                 duration: duration,
                 tagline: tagline,
                 thumb: thumb,
                 art: art,
                 originallyAvailableAt: originallyAvailableAt,
-                guid: nil, // Will be parsed from XML attributes if present
+                guid: attributeDict["guid"],
                 roles: [],
                 directors: [],
                 writers: [],
                 genres: [],
                 countries: [],
                 ratings: [],
-                guids: nil, // Will be populated from Guid elements if present
-                ultraBlurColors: nil
+                guids: nil,
+                ultraBlurColors: nil,
+                technical: currentTechnical
             )
             roles = []
             ratings = []
             genres = []
             countries = []
+            guids = []
+
+        case "Media":
+            if let resolution = attributeDict["videoResolution"] ?? attributeDict["height"] {
+                currentTechnical.videoResolution = resolution
+            }
+            if let width = attributeDict["width"], let height = attributeDict["height"], currentTechnical.aspectRatio == nil {
+                currentTechnical.aspectRatio = "\(width)x\(height)"
+            }
+            if let videoCodec = attributeDict["videoCodec"] {
+                currentTechnical.videoCodec = videoCodec
+            }
+            if let videoProfile = attributeDict["videoProfile"], !videoProfile.isEmpty {
+                if let codec = currentTechnical.videoCodec {
+                    currentTechnical.videoCodec = "\(codec.uppercased()) \(videoProfile.uppercased())"
+                } else {
+                    currentTechnical.videoCodec = videoProfile.uppercased()
+                }
+            }
+            if let frameRate = attributeDict["videoFrameRate"] ?? attributeDict["frameRate"] {
+                currentTechnical.videoFrameRate = frameRate
+            }
+            if let aspect = attributeDict["aspectRatio"] ?? attributeDict["videoAspectRatio"] {
+                currentTechnical.aspectRatio = aspect
+            }
+            if let audioCodec = attributeDict["audioCodec"] {
+                currentTechnical.audioCodec = audioCodec
+            }
+            if let audioChannels = attributeDict["audioChannels"], let channels = Int(audioChannels) {
+                currentTechnical.audioChannels = channels
+            }
+            if let audioProfile = attributeDict["audioProfile"] {
+                currentTechnical.audioProfile = audioProfile
+            }
+            if let container = attributeDict["container"] {
+                currentTechnical.container = container
+            }
+            if let bitrate = Int(attributeDict["bitrate"] ?? "") {
+                currentTechnical.bitrate = bitrate
+            }
+
+        case "Part":
+            if let container = attributeDict["container"], !container.isEmpty {
+                currentTechnical.container = container
+            }
+            if let bitrate = Int(attributeDict["bitrate"] ?? "") {
+                currentTechnical.bitrate = bitrate
+            }
+            if let size = Int(attributeDict["size"] ?? "") {
+                currentTechnical.fileSize = size
+            }
 
         case "Role":
             let id = attributeDict["id"] ?? ""
@@ -1237,35 +1428,7 @@ class MovieMetadataXMLParserDelegate: NSObject, XMLParserDelegate {
                 topRight: topRight
             )
 
-            // Update the current movie with ultra blur colors
-            if var movie = currentMovie {
-                movie = MovieMetadata(
-                    id: movie.id,
-                    title: movie.title,
-                    year: movie.year,
-                    studio: movie.studio,
-                    summary: movie.summary,
-                    rating: movie.rating,
-                    audienceRating: movie.audienceRating,
-                    audienceRatingImage: movie.audienceRatingImage,
-                    contentRating: movie.contentRating,
-                    duration: movie.duration,
-                    tagline: movie.tagline,
-                    thumb: movie.thumb,
-                    art: movie.art,
-                    originallyAvailableAt: movie.originallyAvailableAt,
-                    guid: movie.guid,
-                    roles: movie.roles,
-                    directors: movie.directors,
-                    writers: movie.writers,
-                    genres: movie.genres,
-                    countries: movie.countries,
-                    ratings: movie.ratings,
-                    guids: movie.guids,
-                    ultraBlurColors: ultraBlurColors
-                )
-                currentMovie = movie
-            }
+            currentMovie?.ultraBlurColors = ultraBlurColors
 
         default:
             break
@@ -1282,31 +1445,13 @@ class MovieMetadataXMLParserDelegate: NSObject, XMLParserDelegate {
 
         case "Video":
             if var movie = currentMovie {
-                movie = MovieMetadata(
-                    id: movie.id,
-                    title: movie.title,
-                    year: movie.year,
-                    studio: movie.studio,
-                    summary: movie.summary,
-                    rating: movie.rating,
-                    audienceRating: movie.audienceRating,
-                    audienceRatingImage: movie.audienceRatingImage,
-                    contentRating: movie.contentRating,
-                    duration: movie.duration,
-                    tagline: movie.tagline,
-                    thumb: movie.thumb,
-                    art: movie.art,
-                    originallyAvailableAt: movie.originallyAvailableAt,
-                    guid: movie.guid,
-                    roles: roles,
-                    directors: movie.directors,
-                    writers: movie.writers,
-                    genres: genres.isEmpty ? nil : genres,
-                    countries: countries.isEmpty ? nil : countries,
-                    ratings: ratings,
-                    guids: guids.isEmpty ? nil : guids,
-                    ultraBlurColors: movie.ultraBlurColors
-                )
+                movie.roles = roles.isEmpty ? nil : roles
+                movie.genres = genres.isEmpty ? nil : genres
+                movie.countries = countries.isEmpty ? nil : countries
+                movie.ratings = ratings.isEmpty ? nil : ratings
+                movie.guids = guids.isEmpty ? nil : guids
+                movie.technical = currentTechnical
+                currentMovie = movie
                 movies.append(movie)
                 print("🎬 DEBUG: Movie completed with \(genres.count) genres and \(countries.count) countries")
             }
@@ -1316,6 +1461,7 @@ class MovieMetadataXMLParserDelegate: NSObject, XMLParserDelegate {
             guids = []
             genres = []
             countries = []
+            currentTechnical = MovieTechnicalInfo()
 
         case "MediaContainer":
             let container = PlexMovieMetadataResponse.MovieMetadataContainer(

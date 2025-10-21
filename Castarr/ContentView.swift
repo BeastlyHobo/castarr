@@ -17,7 +17,10 @@ struct ContentView: View {
             Group {
                 if plexService.isLoggedIn {
                     // Main app content when logged in - Now Playing focused
-                    MainView(plexService: plexService)
+                    MainView(plexService: plexService) {
+                        isInitialSetup = false
+                        showingSettings = true
+                    }
                 } else {
                     // Login view when not authenticated
                     LoginView(plexService: plexService) {
@@ -28,11 +31,13 @@ struct ContentView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        isInitialSetup = false
-                        showingSettings = true
-                    }) {
-                        Image(systemName: "gear")
+                    if !plexService.isLoggedIn {
+                        Button(action: {
+                            isInitialSetup = false
+                            showingSettings = true
+                        }) {
+                            Image(systemName: "gear")
+                        }
                     }
                 }
             }

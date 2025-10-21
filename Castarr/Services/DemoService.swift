@@ -22,7 +22,9 @@ class DemoService {
         let mockUser = SessionUser(
             id: 1,
             title: "Demo User",
-            thumb: nil
+            thumb: nil,
+            uuid: "demo-user-uuid",
+            email: Self.demoEmail
         )
         
         let mockPlayer = SessionPlayer(
@@ -115,6 +117,19 @@ class DemoService {
             MovieGuid(id: "tvdb://76169")
         ]
         
+        let mockTechnical = MovieTechnicalInfo(
+            videoResolution: "1080",
+            videoCodec: "H.264",
+            videoFrameRate: "23.976",
+            aspectRatio: "1.78",
+            audioCodec: "AAC",
+            audioChannels: 6,
+            audioProfile: "lc",
+            container: "mp4",
+            bitrate: 12000000,
+            fileSize: 3_580_000_000
+        )
+        
         let mockMovie = MovieMetadata(
             id: "12345",
             title: "It's A Wonderful Life",
@@ -147,7 +162,8 @@ class DemoService {
                 bottomRight: "#2a2a2a",
                 topLeft: "#3a3a3a",
                 topRight: "#4a4a4a"
-            )
+            ),
+            technical: mockTechnical
         )
         
         let container = PlexMovieMetadataResponse.MovieMetadataContainer(

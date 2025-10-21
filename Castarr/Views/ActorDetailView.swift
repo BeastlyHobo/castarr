@@ -178,18 +178,7 @@ struct ActorDetailView: View {
 
                 // Biography
                 if let biography = details.biography, !biography.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Biography")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Text(biography)
-                            .font(.body)
-                            .lineSpacing(4)
-                    }
-                    .padding()
-                    .background(.thickMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    BiographySection(text: biography)
                 }
             }
         }
@@ -537,5 +526,48 @@ struct ActorPosterDetailView: View {
                 }
             }
         }
+    }
+}
+
+private struct BiographySection: View {
+    let text: String
+    @State private var isExpanded = false
+
+    private let previewCharacterLimit = 320
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Biography")
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(displayText)
+                .font(.body)
+                .lineSpacing(4)
+
+            if shouldShowReadMore {
+                Button(isExpanded ? "Show Less" : "Read More") {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isExpanded.toggle()
+                    }
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.accentColor)
+            }
+        }
+        .padding()
+        .background(.thickMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var shouldShowReadMore: Bool {
+        text.count > previewCharacterLimit
+    }
+
+    private var displayText: String {
+        guard !isExpanded, shouldShowReadMore else { return text }
+        let preview = text.prefix(previewCharacterLimit)
+        let trimmed = preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed + "…"
     }
 }

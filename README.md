@@ -1,51 +1,52 @@
 <div align="center">
-  <img src="rolecall.png" alt="RoleCall" width="200"/>
+  <img src="Castarr.png" alt="Castarr" width="200"/>
 </div>
 
-# RoleCall
+# Castarr
 
-An iOS app that connects to your Plex Media Server to browse active sessions and view detailed cast information using IMDb.
+An iOS app for Plex power‑users to browse active sessions on your Plex Media Server and dive into rich, IMDb‑powered cast details — rebuilt with a refreshed UI, faster networking, and quality‑of‑life improvements.
 
 ## Features
 
-- **OAuth Login**: Secure authentication via Plex.tv with MFA support
-- **Demo Mode**: Built-in demo account for app reviewers
-- **Active Sessions**: View current video playback sessions on your Plex server
-- **Cast Details**: Browse movie cast and crew with IMDb integration
-- **Actor Profiles**: View biographies, photos, and filmographies
-- **Server Info**: View Plex server capabilities and status
+- **Plex OAuth Login**: Secure authentication via Plex.tv with MFA support
+- **Demo Mode**: Built-in demo account for app reviewers and demos
+- **Active Sessions**: Real‑time view of who’s watching what on your server
+- **Cast + Crew**: IMDb integration for actor bios, photos, filmography
+- **Movie Details**: Technical info, ratings, and artwork
+- **Server Insights**: Server capabilities, activities, and sessions views
+- **HTTPS/HTTP Fallback**: Better connectivity for self‑hosted, external, or self‑signed setups
 
 ## Setup
 
-1. Enter your Plex Media Server IP address in Settings
+1. Open Settings and enter your Plex Media Server IP (port `32400` is used automatically)
 2. Tap "Login with Plex" to authenticate via Plex.tv
-3. Browse active sessions and tap any movie to view cast details
+3. Browse active sessions and tap a title to view cast details
 
-That's it! No API keys required.
+No API keys required.
 
 ## Demo Mode
 
-For app reviewers: tap "App Review? Use Demo Account" on the login screen to access demo mode without a Plex server.
+For app reviewers and demos: tap "App Review? Use Demo Account" on the login screen to explore without a Plex server.
 
 ## Requirements
 
-- iOS 15.0+
-- Xcode 16.0+
+- iOS 16.6+
+- Xcode 15+
 - Swift 5.0+
 - Plex Media Server with network access
 - Valid Plex account
 
 ## Building
 
-Open `RoleCall.xcodeproj` in Xcode and build normally. No additional configuration required.
+Open `Castarr.xcodeproj` in Xcode and build. Select the `Castarr` scheme (or the app target) and run.
 
 ```bash
 # Simulator
-xcodebuild -project "RoleCall.xcodeproj" -scheme "RoleCall" \
+xcodebuild -project "Castarr.xcodeproj" -scheme "Castarr" \
   -destination 'generic/platform=iOS Simulator,name=iPhone 16' build
 
 # Device
-xcodebuild -project "RoleCall.xcodeproj" -scheme "RoleCall" \
+xcodebuild -project "Castarr.xcodeproj" -scheme "Castarr" \
   -destination 'generic/platform=iOS' build
 ```
 
@@ -65,8 +66,12 @@ xcodebuild -project "RoleCall.xcodeproj" -scheme "RoleCall" \
 - `GET /titles/{titleId}/credits` - Movie cast and crew
 - `GET /search/titles` - Movie search
 
-No API key required for IMDb - uses free public API.
+No API key required for IMDb — uses free public API.
+
+## Attribution
+
+Castarr is based on and inspired by the original RoleCall project — credit to the original creator for the foundational work and ideas. This fork includes a new brand, UI/UX refinements, network resiliency, and expanded views.
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+See `LICENSE`.

@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct RoleCallApp: App {
+struct CastarrApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

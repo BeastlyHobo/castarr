@@ -147,7 +147,7 @@ class IMDbService: ObservableObject {
         }
         
         var request = URLRequest(url: url)
-        request.setValue("RoleCall/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
         
         let (data, response) = try await session.data(for: request)
         
@@ -183,7 +183,7 @@ class IMDbService: ObservableObject {
         }
         
         var request = URLRequest(url: url)
-        request.setValue("RoleCall/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
         
         let (data, response) = try await session.data(for: request)
         
@@ -219,7 +219,7 @@ class IMDbService: ObservableObject {
         }
         
         var request = URLRequest(url: url)
-        request.setValue("RoleCall/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
         
         let (data, response) = try await session.data(for: request)
         
@@ -270,7 +270,7 @@ class IMDbService: ObservableObject {
         }
 
         var request = URLRequest(url: url)
-        request.setValue("RoleCall/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
 
@@ -373,7 +373,7 @@ class IMDbService: ObservableObject {
         }
 
         var request = URLRequest(url: url)
-        request.setValue("RoleCall/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
 
@@ -417,7 +417,7 @@ class IMDbService: ObservableObject {
         }
 
         var request = URLRequest(url: url)
-        request.setValue("RoleCall/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
 
         do {
             let (data, response) = try await session.data(for: request)
@@ -476,7 +476,7 @@ class IMDbService: ObservableObject {
         }
 
         var request = URLRequest(url: url)
-        request.setValue("RoleCall/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
 
         do {
             let (data, response) = try await session.data(for: request)
@@ -589,7 +589,7 @@ class IMDbService: ObservableObject {
         }
 
         var request = URLRequest(url: url)
-        request.setValue("RoleCall/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
 
         do {
             let (data, response) = try await session.data(for: request)

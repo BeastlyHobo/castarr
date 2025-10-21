@@ -1,6 +1,6 @@
 //
 //  Theme.swift
-//  RoleCall
+//  Castarr
 //
 //  Created by Codex on 3/8/24.
 //
@@ -9,12 +9,12 @@ import SwiftUI
 
 enum Theme {
     enum Colors {
-        static let background = Color(hex: "#0E1117")
-        static let surface = Color(hex: "#1A1F24")
-        static let primaryAccent = Color(hex: "#E5A00D")
-        static let secondaryAccent = Color(hex: "#00BFA6")
-        static let highlight = Color(hex: "#A0A0A0")
-        static let text = Color(hex: "#EDEDED")
+        static let background = Color("CastarrBackground")
+        static let surface = Color("CastarrSurface")
+        static let primaryAccent = Color("CastarrPrimaryAccent")
+        static let secondaryAccent = Color("CastarrSecondaryAccent")
+        static let highlight = Color("CastarrHighlight")
+        static let text = Color("CastarrText")
         static let error = Color.red
     }
 

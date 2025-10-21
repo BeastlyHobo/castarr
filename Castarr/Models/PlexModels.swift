@@ -12,7 +12,11 @@ struct PlexSettings: Codable {
     var serverIP: String = ""
     var plexToken: String = ""
     var tokenExpirationDate: Date?
-    var username: String = "" // Store username for convenience
+    var username: String = "" // Stored normalized username
+    var plexUserID: Int?
+    var plexAccountUUID: String?
+    var plexAccountEmail: String?
+    var onlyShowMySessions: Bool = true
 
     var isTokenValid: Bool {
         // Don't check artificial expiration dates - let the actual API calls determine validity
@@ -57,6 +61,13 @@ struct PlexPinResponse: Codable {
     var isAuthenticated: Bool {
         return authToken != nil && !(authToken ?? "").isEmpty
     }
+}
+
+struct PlexAccountResponse: Codable {
+    let id: Int
+    let uuid: String?
+    let username: String
+    let email: String?
 }
 
 // MARK: - Plex Server Capabilities Response
@@ -328,6 +339,8 @@ struct SessionUser: Codable, Identifiable {
     let id: Int
     let title: String
     let thumb: String?
+    let uuid: String?
+    let email: String?
 }
 
 // MARK: - Session Player
@@ -374,32 +387,46 @@ struct PlexMovieMetadataResponse: Codable {
 }
 
 // MARK: - Movie Metadata
+struct MovieTechnicalInfo: Codable {
+    var videoResolution: String?
+    var videoCodec: String?
+    var videoFrameRate: String?
+    var aspectRatio: String?
+    var audioCodec: String?
+    var audioChannels: Int?
+    var audioProfile: String?
+    var container: String?
+    var bitrate: Int?
+    var fileSize: Int?
+}
+
 struct MovieMetadata: Codable, Identifiable {
     let id: String
-    let title: String?
-    let year: Int?
-    let studio: String?
-    let summary: String?
-    let rating: Double?
-    let audienceRating: Double?
-    let audienceRatingImage: String?
-    let contentRating: String?
-    let duration: Int?
-    let tagline: String?
-    let thumb: String?
-    let art: String?
-    let originallyAvailableAt: String?
-    let guid: String? // External metadata provider ID
+    var title: String?
+    var year: Int?
+    var studio: String?
+    var summary: String?
+    var rating: Double?
+    var audienceRating: Double?
+    var audienceRatingImage: String?
+    var contentRating: String?
+    var duration: Int?
+    var tagline: String?
+    var thumb: String?
+    var art: String?
+    var originallyAvailableAt: String?
+    var guid: String? // External metadata provider ID
 
     // Cast and Crew
-    let roles: [MovieRole]?
-    let directors: [MovieDirector]?
-    let writers: [MovieWriter]?
-    let genres: [MovieGenre]?
-    let countries: [MovieCountry]?
-    let ratings: [MovieRating]?
-    let guids: [MovieGuid]? // External IDs array
-    let ultraBlurColors: UltraBlurColors?
+    var roles: [MovieRole]?
+    var directors: [MovieDirector]?
+    var writers: [MovieWriter]?
+    var genres: [MovieGenre]?
+    var countries: [MovieCountry]?
+    var ratings: [MovieRating]?
+    var guids: [MovieGuid]? // External IDs array
+    var ultraBlurColors: UltraBlurColors?
+    var technical: MovieTechnicalInfo?
 
     private enum CodingKeys: String, CodingKey {
         case id = "ratingKey"
@@ -412,6 +439,7 @@ struct MovieMetadata: Codable, Identifiable {
         case ratings = "Rating"
         case guids = "Guid"
         case ultraBlurColors = "UltraBlurColors"
+        case technical
     }
     
     // Extract IMDb ID from guid or guids array
@@ -956,4 +984,3 @@ struct WyzieSubtitleResponse: Codable {
     let isHearingImpaired: Bool
     let source: String
 }
-

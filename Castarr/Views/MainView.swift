@@ -1,11 +1,15 @@
 //
 //  MainView.swift
-//  RoleCall
+//  Castarr
 //
 //  Created by Eric on 7/28/25.
+//  Reimagined hero layout and bottom navigation by Codex on 3/8/24.
 //
 
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 // Persistent storage to prevent actor name loss during state refreshes
 class ActorNameStore: ObservableObject {
@@ -14,664 +18,106 @@ class ActorNameStore: ObservableObject {
 
 struct MainView: View {
     @ObservedObject var plexService: PlexService
+    var onSettingsTap: () -> Void = {}
+
     @State private var movieMetadata: MovieMetadata?
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var isMovieInfoExpanded = false
+
+    // Hero / section state
+    @State private var isSummaryExpanded = false
+    @State private var activeSection: DetailSection = .overview
+
+    // Bottom sheet presentation
     @State private var showingActorDetail = false
     @State private var showingPosterDetail = false
-    @State private var selectedActorName = ""
-    @State private var pendingActorName = "" // Backup for actor name to prevent state loss
-    @State private var metadataTask: Task<Void, Never>? // Track current metadata loading task
 
-    // Persistent storage for actor name that survives state refreshes
+    // Actor selection state
+    @State private var selectedActorName = ""
+    @State private var pendingActorName = ""
+
+    // Background tasks
+    @State private var metadataTask: Task<Void, Never>?
+
+    // Persistent helpers
     @StateObject private var actorNameStore = ActorNameStore()
     @StateObject private var imdbService = IMDbService()
 
+    // Sections available for quick navigation
+    enum DetailSection: String, CaseIterable, Identifiable {
+        case overview = "Overview"
+        case ratings = "Ratings"
+        case details = "Details"
+        case cast = "Cast"
+
+        var id: String { rawValue }
+        var title: String { rawValue }
+        var icon: String {
+            switch self {
+            case .overview: return "text.justify.left"
+            case .ratings: return "star.circle.fill"
+            case .details: return "gearshape.fill"
+            case .cast: return "person.3.fill"
+            }
+        }
+        var scrollID: String { "section-\(rawValue.lowercased())" }
+    }
+
     var body: some View {
-        ZStack {
-            // Background gradient using ultra blur colors
-            if let movie = movieMetadata, let colors = movie.ultraBlurColors {
-                createGradientBackground(colors: colors)
-                    .ignoresSafeArea()
-            } else {
-                // Fallback background
-                LinearGradient(
-                    colors: [Theme.Colors.background, Theme.Colors.surface.opacity(0.9)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
-            }
-
-            ScrollView {
-                VStack(spacing: 8) {
-                    if isLoading {
-                        ProgressView("Loading movie details...")
-                            .padding()
-                            .progressViewStyle(CircularProgressViewStyle(tint: Theme.Colors.primaryAccent))
-                    } else if let errorMessage = errorMessage {
-                        Text("Error: \(errorMessage)")
-                            .foregroundColor(Theme.Colors.error)
-                            .padding()
-                    } else {
-                        content
-                    }
-                }
-                .padding(.top, 2)
-                .foregroundColor(Theme.Colors.text)
-            }
-            .refreshable {
-                await refreshSessions()
-            }
-        }
-        .onAppear {
-            // Fetch sessions data when the app loads, then load movie metadata
-            Task {
-                await plexService.fetchSessions()
-                loadMovieMetadata()
-            }
-        }
-
-        .onDisappear {
-            // Cancel any pending metadata task when view disappears
-            metadataTask?.cancel()
-        }
-        .onChange(of: plexService.selectedSessionIndex) { newValue in
-            // Reload movie metadata when session selection changes
-            print("🔄 MainView: Session selection changed to \(newValue)")
-            loadMovieMetadata()
-        }
-    }
-    
-    private func refreshSessions() async {
-        print("🔄 MainView: Pull-to-refresh triggered")
-        
-        // Store the current session information before refresh
-        let videoSessionsBeforeRefresh = plexService.activeVideoSessions
-        let currentSessionIndex = plexService.selectedSessionIndex
-        
-        // Always fetch fresh session data
-        await plexService.fetchSessions()
-        
-        // Get updated session information
-        let videoSessionsAfterRefresh = plexService.activeVideoSessions
-        
-        print("🔄 MainView: Sessions before refresh: \(videoSessionsBeforeRefresh.count)")
-        print("🔄 MainView: Sessions after refresh: \(videoSessionsAfterRefresh.count)")
-        print("🔄 MainView: Current selected index: \(currentSessionIndex)")
-        
-        // Handle session selection based on the new requirements
-        if videoSessionsAfterRefresh.isEmpty {
-            // No sessions: Reset to default and show "nothing playing"
-            print("🔄 MainView: No active sessions - showing 'nothing playing' page")
-            plexService.selectedSessionIndex = 0
-            // Clear current movie metadata since there's nothing playing
-            movieMetadata = nil
-        } else if videoSessionsAfterRefresh.count == 1 {
-            // Single session: Keep showing that session (set index to 0)
-            print("🔄 MainView: Single session - keeping current display")
-            plexService.selectedSessionIndex = 0
-            // Reload metadata for the single session
-            loadMovieMetadata()
-        } else {
-            // Multiple sessions: Preserve current selection if it's still valid
-            if currentSessionIndex < videoSessionsAfterRefresh.count {
-                print("🔄 MainView: Multiple sessions - preserving current selection (index \(currentSessionIndex))")
-                // Keep the current selection and reload its metadata
-                loadMovieMetadata()
-            } else {
-                print("🔄 MainView: Current selection out of bounds - resetting to first session")
-                // Current selection is out of bounds, reset to first session
-                plexService.selectedSessionIndex = 0
-                loadMovieMetadata()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        let videoSessions = plexService.activeVideoSessions
-        if !videoSessions.isEmpty {
-            VStack(spacing: 8) {
-                // Movie details
-                if let movie = movieMetadata {
-                    movieDetailsView(movie: movie)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 2)
-        } else {
-            VStack(spacing: 16) {
-                Image(systemName: "tv.slash")
-                    .font(.system(size: 48))
-                    .foregroundColor(Theme.Colors.highlight)
-
-                Text("No Active Sessions")
-                    .font(.title2)
-                    .fontWeight(.medium)
-
-                Text("Start playing something on your Plex server to see details here.")
-                    .font(.body)
-                    .foregroundColor(Theme.Colors.highlight)
-                    .multilineTextAlignment(.center)
-            }
-            .padding()
-        }
-    }
-
-    private func movieDetailsView(movie: MovieMetadata) -> some View {
-        VStack(alignment: .leading, spacing: 40) {
-            // Movie title - redesigned to be more compact and elegant
+        ScrollViewReader { scrollProxy in
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Theme.Colors.surface.opacity(0.9))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Theme.Colors.highlight.opacity(0.15), lineWidth: 1)
+                backgroundLayer
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    contentStack
+                        .padding(.bottom, 80) // space for bottom menu
+                }
+                .coordinateSpace(name: "mainScroll")
+                .refreshable {
+                    await refreshSessions()
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                GeometryReader { geometry in
+                    BottomSectionBar(
+                        sections: DetailSection.allCases,
+                        activeSection: activeSection,
+                        onSelect: { section in
+                            withAnimation(.easeInOut(duration: 0.35)) {
+                                scrollProxy.scrollTo(section.scrollID, anchor: .top)
+                            }
+                            activeSection = section
+                        },
+                        onSettingsTap: onSettingsTap,
+                        bottomInset: geometry.safeAreaInsets.bottom
                     )
-                    .onTapGesture {
-                        print("🎬 MainView: Movie title tapped")
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            isMovieInfoExpanded.toggle()
-                        }
-                        print("🎬 MainView: isMovieInfoExpanded is now: \(isMovieInfoExpanded)")
-                    }
-                
-                HStack {
-                    Text(movie.title ?? "Unknown Title")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(Theme.Colors.text)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Image(systemName: "chevron.down")
-                        .font(.caption)
-                        .foregroundColor(Theme.Colors.highlight)
-                        .opacity(0.6)
-                        .rotationEffect(.degrees(isMovieInfoExpanded ? 180 : 0))
-                        .animation(.easeInOut(duration: 0.3), value: isMovieInfoExpanded)
+                    .padding(.bottom, geometry.safeAreaInsets.bottom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
-                .allowsHitTesting(false)
+                .frame(height: 70) // make the inset content just overlay at the bottom
             }
-            .padding(.bottom, 20)
-
-            // Collapsible movie info section
-            if isMovieInfoExpanded {
-                VStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Movie poster and basic info section
-                        HStack(alignment: .top, spacing: 12) {
-                            // Movie poster
-                            Button(action: {
-                                showingPosterDetail = true
-                            }) {
-                                AsyncImage(url: posterURL(for: movie.thumb)) { image in
-                                    image
-                                        .resizable()
-                                        .aspectRatio(2/3, contentMode: .fit)
-                                } placeholder: {
-                                    Rectangle()
-                                        .foregroundColor(Theme.Colors.surface.opacity(0.6))
-                                        .aspectRatio(2/3, contentMode: .fit)
-                                }
-                                .frame(width: 80)
-                                .cornerRadius(6)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-
-                            // Basic info
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 8) {
-                                    if let year = movie.year {
-                                        Text(String(year))
-                                            .font(.subheadline)
-                                            .foregroundColor(Theme.Colors.highlight)
-                                    }
-
-                                    if let contentRating = movie.contentRating {
-                                        Text(contentRating)
-                                            .themeTag(accent: Theme.Colors.secondaryAccent)
-                                    }
-                                }
-
-                                if let duration = movie.duration {
-                                    Text(formatTime(duration))
-                                        .font(.caption)
-                                        .foregroundColor(Theme.Colors.highlight)
-                                }
-
-                                // Ratings section
-                                if let ratings = movie.ratings, !ratings.isEmpty {
-                                    ratingsView(ratings: ratings)
-                                        .onAppear {
-                                            print("🎭 MainView: Displaying \(ratings.count) ratings")
-                                            for (index, rating) in ratings.enumerated() {
-                                                print("   Rating \(index): type=\(rating.type ?? "nil"), value=\(rating.value ?? -1), image=\(rating.image ?? "nil")")
-                                            }
-                                        }
-                                } else {
-                                    Text("No ratings available")
-                                        .font(.caption)
-                                        .foregroundColor(Theme.Colors.highlight)
-                                        .onAppear {
-                                            print("🎭 MainView: No ratings to display - ratings: \(movie.ratings?.count ?? 0)")
-                                        }
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-
-                        // Summary
-                        if let summary = movie.summary {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Summary")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                                Text(summary)
-                                    .font(.body)
-                                    .lineLimit(nil)
-                            }
-                        }
-
-                        // Genres
-                        if let genres = movie.genres, !genres.isEmpty {
-                            genrePillsView(genres: genres)
-                        }
-
-                        // Countries
-                        if let countries = movie.countries, !countries.isEmpty {
-                            countriesView(countries: countries)
-                        }
-
-                        // Directors
-                        if let directors = movie.directors, !directors.isEmpty {
-                            directorsView(directors: directors)
-                        }
-
-                        // Writers
-                        if let writers = movie.writers, !writers.isEmpty {
-                            writersView(writers: writers)
-                        }
-                    }
-                }
-                .padding()
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Theme.Colors.surface.opacity(0.92))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Theme.Colors.highlight.opacity(0.12), lineWidth: 1)
-                        )
-                )
-            }
-
-            // Cast section - always visible with refined spacing
-            if let roles = movie.roles, !roles.isEmpty {
-                castView(cast: roles)
-            }
-        }
-    }
-
-    private func ratingsView(ratings: [MovieRating]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Ratings")
-                .font(.subheadline)
-                .fontWeight(.medium)
-
-            VStack(alignment: .leading, spacing: 6) {
-                // First row: Rotten Tomatoes (critic and audience)
-                HStack(spacing: 8) {
-                    ForEach(ratings.filter { $0.image?.contains("rottentomatoes") == true }, id: \.computedId) { rating in
-                        HStack(spacing: 4) {
-                            if rating.type == "critic" {
-                                // Tomato with color based on Fresh (≥6.0) vs Rotten (<6.0)
-                                let isFresh = (rating.value ?? 0) >= 6.0
-                                Text("🍅")
-                                    .font(.caption)
-                                    .foregroundColor(isFresh ? Theme.Colors.primaryAccent : Theme.Colors.highlight)
-                            } else {
-                                // Audience rating - keep person icon
-                                Image(systemName: "person.fill")
-                                    .foregroundColor(Theme.Colors.secondaryAccent)
-                                    .font(.caption)
-                            }
-
-                            if let value = rating.value {
-                                Text(formatRating(value))
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
-                            }
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Theme.Colors.surface.opacity(0.8))
-                        .cornerRadius(6)
-                    }
-                    Spacer()
-                }
-
-                // Second row: IMDb ratings
-                HStack(spacing: 8) {
-                    ForEach(ratings.filter { $0.image?.contains("imdb") == true }, id: \.computedId) { rating in
-                        HStack(spacing: 4) {
-                            if let image = rating.image {
-                                if image.contains("imdb") {
-                                    Text("IMDb")
-                                        .font(.caption2)
-                                        .fontWeight(.bold)
-                                        .foregroundColor(Theme.Colors.primaryAccent)
-                                }
-                            }
-
-                            if let value = rating.value {
-                                Text(formatRating(value))
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
-                            }
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Theme.Colors.surface.opacity(0.8))
-                        .cornerRadius(6)
-                    }
-                    Spacer()
+            .onAppear {
+                Task {
+                    await plexService.fetchSessions()
+                    loadMovieMetadata()
                 }
             }
-        }
-        .onAppear {
-            print("DEBUG - Movie ratings count: \(ratings.count)")
-            for (index, rating) in ratings.enumerated() {
-                print("DEBUG - Rating \(index): image=\(rating.image ?? "nil"), value=\(rating.value?.description ?? "nil"), type=\(rating.type ?? "nil"), id=\(rating.id ?? "nil")")
+            .onDisappear {
+                metadataTask?.cancel()
+            }
+            .onChange(of: plexService.selectedSessionIndex) { _ in
+                loadMovieMetadata()
+            }
+            .onChange(of: plexService.activeVideoSessions.count) { _ in
+                loadMovieMetadata()
+            }
+            .onChange(of: movieMetadata?.id) { _ in
+                activeSection = .overview
             }
         }
-    }
-
-    private func genrePillsView(genres: [MovieGenre]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Genres")
-                .font(.headline)
-
-            SimpleFlowLayout(genres, spacing: 8) { genre in
-                Text(genre.tag)
-                    .themeTag(accent: Theme.Colors.secondaryAccent)
-            }
-        }
-    }
-
-    private func countriesView(countries: [MovieCountry]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Countries")
-                .font(.headline)
-
-            SimpleFlowLayout(countries, spacing: 8) { country in
-                Text(country.tag)
-                    .themeTag(accent: Theme.Colors.primaryAccent)
-            }
-        }
-    }
-
-    private func directorsView(directors: [MovieDirector]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Directors")
-                .font(.headline)
-
-            LazyVStack(alignment: .leading, spacing: 8) {
-                ForEach(directors) { director in
-                    HStack {
-                        AsyncImage(url: thumbnailURL(for: director.thumb)) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                            case .failure(_):
-                                Image(systemName: "person.fill")
-                                    .foregroundColor(Theme.Colors.highlight)
-                                    .font(.title2)
-                            case .empty:
-                                Image(systemName: "person.fill")
-                                    .foregroundColor(Theme.Colors.highlight)
-                                    .font(.title2)
-                            @unknown default:
-                                Image(systemName: "person.fill")
-                                    .foregroundColor(Theme.Colors.highlight)
-                                    .font(.title2)
-                            }
-                        }
-                        .frame(width: 40, height: 40)
-                        .clipShape(Circle())
-                        .background(Circle().fill(Theme.Colors.surface.opacity(0.6)))
-
-                        Text(director.tag)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Theme.Colors.surface.opacity(0.8))
-                    .cornerRadius(8)
-                }
-            }
-        }
-    }
-
-    private func writersView(writers: [MovieWriter]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Writers")
-                .font(.headline)
-
-            LazyVStack(alignment: .leading, spacing: 8) {
-                ForEach(writers) { writer in
-                    HStack {
-                        AsyncImage(url: thumbnailURL(for: writer.thumb)) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                            case .failure(_):
-                                Image(systemName: "person.fill")
-                                    .foregroundColor(Theme.Colors.highlight)
-                                    .font(.title2)
-                            case .empty:
-                                Image(systemName: "person.fill")
-                                    .foregroundColor(Theme.Colors.highlight)
-                                    .font(.title2)
-                            @unknown default:
-                                Image(systemName: "person.fill")
-                                    .foregroundColor(Theme.Colors.highlight)
-                                    .font(.title2)
-                            }
-                        }
-                        .frame(width: 40, height: 40)
-                        .clipShape(Circle())
-                        .background(Circle().fill(Theme.Colors.surface.opacity(0.6)))
-
-                        Text(writer.tag)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Theme.Colors.surface.opacity(0.8))
-                    .cornerRadius(8)
-                }
-            }
-        }
-    }
-    
-    // Device-specific grid columns
-    private var gridColumns: [GridItem] {
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            // iPad: 3 columns for better use of space
-            return [
-                GridItem(.flexible(), spacing: 16),
-                GridItem(.flexible(), spacing: 16),
-                GridItem(.flexible(), spacing: 16)
-            ]
-        } else {
-            // iPhone: 2 columns for optimal readability
-            return [
-                GridItem(.flexible(), spacing: 16),
-                GridItem(.flexible(), spacing: 16)
-            ]
-        }
-        #else
-        // macOS fallback
-        return [
-            GridItem(.flexible(), spacing: 16),
-            GridItem(.flexible(), spacing: 16),
-            GridItem(.flexible(), spacing: 16)
-        ]
-        #endif
-    }
-    
-    // Device-specific card image dimensions
-    private var cardImageWidth: CGFloat {
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            // iPad: Fixed width for consistent grid
-            return 160
-        } else {
-            // iPhone: Use flexible width based on screen size
-            let screenWidth = UIScreen.main.bounds.width
-            let padding: CGFloat = 16 * 3 // left + right + middle spacing
-            let cardPadding: CGFloat = 12 * 2 * 2 // 2 cards with padding on each side
-            return (screenWidth - padding - cardPadding) / 2
-        }
-        #else
-        // macOS fallback
-        return 160
-        #endif
-    }
-    
-    private var cardImageHeight: CGFloat {
-        // Maintain 2:3 aspect ratio (portrait) for all actor photos
-        return cardImageWidth * 1.5
-    }
-
-    private func castView(cast: [MovieRole]) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Device-specific grid layouts
-            LazyVGrid(columns: gridColumns, spacing: 16) {
-                ForEach(cast) { role in
-                    Button(action: {
-                        print("🎬 MainView: User tapped actor button")
-                        print("   Role ID: '\(role.id)'")
-                        print("   Role Tag (Actor Name): '\(role.tag)'")
-                        print("   Role Role (Character): '\(role.role ?? "N/A")'")
-
-                        // Store in persistent store first
-                        actorNameStore.storedActorName = role.tag
-
-                        // Set both backup and primary actor name to prevent state loss during polling
-                        pendingActorName = role.tag
-                        selectedActorName = role.tag
-                        showingActorDetail = true
-
-                        print("   pendingActorName set to: '\(pendingActorName)'")
-                        print("   selectedActorName set to: '\(selectedActorName)'")
-                        print("   storedActorName set to: '\(actorNameStore.storedActorName)'")
-                        print("   showingActorDetail set to: \(showingActorDetail)")
-                    }) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            AsyncImage(url: thumbnailURL(for: role.thumb)) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .frame(width: cardImageWidth, height: cardImageHeight)
-                                        .clipped()
-                                case .failure(_):
-                                    Rectangle()
-                                        .foregroundColor(Theme.Colors.surface.opacity(0.85))
-                                        .frame(width: cardImageWidth, height: cardImageHeight)
-                                        .overlay(
-                                            Image(systemName: "person.fill")
-                                                .foregroundColor(Theme.Colors.highlight)
-                                                .font(.system(size: 32))
-                                        )
-                                case .empty:
-                                    Rectangle()
-                                        .foregroundColor(Theme.Colors.surface.opacity(0.85))
-                                        .frame(width: cardImageWidth, height: cardImageHeight)
-                                        .overlay(
-                                            ProgressView()
-                                                .progressViewStyle(CircularProgressViewStyle(tint: Theme.Colors.primaryAccent))
-                                        )
-                                @unknown default:
-                                    Rectangle()
-                                        .foregroundColor(Theme.Colors.surface.opacity(0.85))
-                                        .frame(width: cardImageWidth, height: cardImageHeight)
-                                        .overlay(
-                                            Image(systemName: "person.fill")
-                                                .foregroundColor(Theme.Colors.highlight)
-                                                .font(.system(size: 32))
-                                        )
-                                }
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(role.tag)
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(Theme.Colors.text)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-
-                                if let character = role.role {
-                                    Text(character)
-                                        .font(.caption)
-                                        .foregroundColor(Theme.Colors.highlight)
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.leading)
-                                }
-                            }
-                        }
-                        .padding(12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Theme.Colors.surface.opacity(0.92))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .stroke(Theme.Colors.highlight.opacity(0.1), lineWidth: 1)
-                                )
-                        )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-        .sheet(isPresented: $showingActorDetail, onDismiss: {
-            print("🎭 MainView: Sheet dismissed, clearing actor names")
-            selectedActorName = ""
-            pendingActorName = ""
-            actorNameStore.storedActorName = ""
-        }) {
+        .sheet(isPresented: $showingActorDetail, onDismiss: resetActorSelection) {
             ActorDetailView(
-                actorName: {
-                    // Use primary state first, then backup, then persistent store
-                    let actorNameToUse = !selectedActorName.isEmpty ? selectedActorName :
-                                        !pendingActorName.isEmpty ? pendingActorName :
-                                        actorNameStore.storedActorName
-                    print("🎭 MainView: Presenting sheet with actor name: '\(actorNameToUse)'")
-                    print("   selectedActorName: '\(selectedActorName)'")
-                    print("   pendingActorName: '\(pendingActorName)'")
-                    print("   storedActorName: '\(actorNameStore.storedActorName)'")
-                    return actorNameToUse
-                }(),
+                actorName: resolvedActorName(),
                 imdbService: imdbService,
                 movieYear: movieMetadata?.year,
                 movieIMDbID: movieMetadata?.imdbID,
@@ -687,48 +133,484 @@ struct MainView: View {
             }
         }
     }
+}
 
-    // Helper functions for URLs
-    private func artURL(for artPath: String?) -> URL? {
-        guard let artPath = artPath else { return nil }
+// MARK: - Content
+private extension MainView {
+    var contentStack: some View {
+        VStack(spacing: 28) {
+            if isLoading {
+                VStack(spacing: 16) {
+                    ProgressView("Loading movie details…")
+                        .progressViewStyle(CircularProgressViewStyle(tint: Theme.Colors.primaryAccent))
+                    Text("Pull to refresh if this takes too long.")
+                        .font(Theme.Typography.caption)
+                        .foregroundColor(Theme.Colors.highlight)
+                }
+                .padding(.top, 120)
+            } else if let errorMessage {
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 48))
+                        .foregroundColor(Theme.Colors.primaryAccent)
+                    Text("Unable to load details")
+                        .font(Theme.Typography.subtitle)
+                        .foregroundColor(Theme.Colors.text)
+                    Text(errorMessage)
+                        .font(Theme.Typography.caption)
+                        .foregroundColor(Theme.Colors.highlight)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
+                .padding(.top, 120)
+            } else if plexService.activeVideoSessions.isEmpty {
+                emptyStateView
+            } else if let movie = movieMetadata {
+                heroSection(for: movie)
+                    .id("hero")
 
-        // If it's already a full URL (like metadata-static.plex.tv), use it directly
-        if artPath.hasPrefix("http://") || artPath.hasPrefix("https://") {
-            return URL(string: artPath)
+                overviewSection(for: movie)
+                    .id(DetailSection.overview.scrollID)
+
+                if let ratings = movie.ratings, !ratings.isEmpty {
+                    ratingsSection(ratings: ratings)
+                        .id(DetailSection.ratings.scrollID)
+                }
+
+                let techRows = technicalRows(for: movie)
+                if !techRows.isEmpty {
+                    technicalDetailsSection(rows: techRows)
+                        .id(DetailSection.details.scrollID)
+                }
+
+                if let cast = movie.roles, !cast.isEmpty {
+                    castSection(cast: cast)
+                        .id(DetailSection.cast.scrollID)
+                } else {
+                    emptyCastPlaceholder
+                        .id(DetailSection.cast.scrollID)
+                }
+            } else {
+                placeholderState
+            }
         }
-
-        // Otherwise, construct local server URL with auth token
-        let urlString = "http://\(plexService.settings.serverIP):32400\(artPath)?X-Plex-Token=\(plexService.settings.plexToken)"
-        return URL(string: urlString)
     }
 
-    private func posterURL(for thumbPath: String?) -> URL? {
+    var emptyStateView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "tv.slash.fill")
+                .font(.system(size: 56))
+                .foregroundColor(Theme.Colors.highlight)
+            Text("No Active Sessions")
+                .font(Theme.Typography.subtitle)
+                .foregroundColor(Theme.Colors.text)
+            Text("Start playing something on your Plex server to see details here.")
+                .font(Theme.Typography.body)
+                .foregroundColor(Theme.Colors.highlight)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+        }
+        .padding(.top, 120)
+    }
+
+    var placeholderState: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle(tint: Theme.Colors.primaryAccent))
+            Text("Fetching metadata…")
+                .font(Theme.Typography.caption)
+                .foregroundColor(Theme.Colors.highlight)
+        }
+        .padding(.top, 120)
+    }
+
+    func heroSection(for movie: MovieMetadata) -> some View {
+        HeroHeaderView(
+            movie: movie,
+            posterURL: posterURL(for: movie.thumb),
+            onPosterTap: {
+                showingPosterDetail = true
+            }
+        )
+    }
+
+    func overviewSection(for movie: MovieMetadata) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SectionHeaderView(title: "Overview", iconName: DetailSection.overview.icon)
+
+            if let tagline = movie.tagline, !tagline.isEmpty {
+                Text(tagline)
+                    .font(Theme.Typography.subtitle)
+                    .foregroundColor(Theme.Colors.text)
+            }
+
+            if let summary = movie.summary, !summary.isEmpty {
+                ExpandableText(text: summary, isExpanded: $isSummaryExpanded)
+            }
+
+            if let genres = movie.genres, !genres.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Genres")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(Theme.Colors.text)
+                    SimpleFlowLayout(genres, spacing: 8) { genre in
+                        Text(genre.tag)
+                            .themeTag()
+                    }
+                }
+            }
+
+            if let studio = movie.studio, !studio.isEmpty {
+                LabeledRow(label: "Studio", value: studio)
+            }
+
+            if let availableDate = movie.originallyAvailableAt, !availableDate.isEmpty {
+                LabeledRow(label: "Released", value: availableDate)
+            }
+        }
+        .themeCard()
+        .padding(.horizontal, 20)
+    }
+
+    func ratingsSection(ratings: [MovieRating]) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SectionHeaderView(title: "Ratings", iconName: DetailSection.ratings.icon)
+
+            VStack(alignment: .leading, spacing: 12) {
+                ratingsRow(title: "Rotten Tomatoes", imageKeyword: "rottentomatoes", ratings: ratings)
+                ratingsRow(title: "IMDb", imageKeyword: "imdb", ratings: ratings)
+                ratingsRow(title: "TMDb", imageKeyword: "themoviedb", ratings: ratings)
+            }
+        }
+        .themeCard()
+        .padding(.horizontal, 20)
+    }
+
+    func technicalDetailsSection(rows: [TechnicalRow]) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SectionHeaderView(title: "Technical Details", iconName: DetailSection.details.icon)
+
+            VStack(spacing: 12) {
+                ForEach(rows) { row in
+                    HStack {
+                        Text(row.label)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(Theme.Colors.highlight)
+                        Spacer()
+                        Text(row.value)
+                            .font(Theme.Typography.body)
+                            .foregroundColor(Theme.Colors.text)
+                    }
+                    if row.id != rows.last?.id {
+                        Divider()
+                            .background(Theme.Colors.highlight.opacity(0.2))
+                    }
+                }
+            }
+        }
+        .themeCard()
+        .padding(.horizontal, 20)
+    }
+
+    func castSection(cast: [MovieRole]) -> some View {
+        VStack(alignment: .leading, spacing: 24) {
+            SectionHeaderView(title: "Cast", iconName: DetailSection.cast.icon)
+
+            LazyVGrid(columns: gridColumns, spacing: 24) {
+                ForEach(cast) { role in
+                    Button {
+                        storeActorSelection(role: role)
+                        showingActorDetail = true
+                    } label: {
+                        CastAvatarCard(
+                            role: role,
+                            imageSize: avatarSize,
+                            cardWidth: avatarCardWidth,
+                            thumbnailURL: thumbnailURL(for: role.thumb)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
+    var emptyCastPlaceholder: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeaderView(title: "Cast", iconName: DetailSection.cast.icon)
+            Text("No cast information available yet.")
+                .font(Theme.Typography.caption)
+                .foregroundColor(Theme.Colors.highlight)
+        }
+        .themeCard()
+        .padding(.horizontal, 20)
+    }
+}
+
+// MARK: - Bottom Navigation
+private struct BottomSectionBar: View {
+    let sections: [MainView.DetailSection]
+    let activeSection: MainView.DetailSection
+    let onSelect: (MainView.DetailSection) -> Void
+    let onSettingsTap: () -> Void
+    let bottomInset: CGFloat
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ForEach(sections) { section in
+                Button {
+                    onSelect(section)
+                } label: {
+                    VStack(spacing: 6) {
+                        Image(systemName: section.icon)
+                            .font(.system(size: 18, weight: .semibold))
+                        Text(section.title)
+                            .font(.caption2.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                    }
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(section == activeSection ? Theme.Colors.primaryAccent : Theme.Colors.surface.opacity(0.85))
+                    )
+                    .foregroundColor(section == activeSection ? Theme.Colors.background : Theme.Colors.highlight)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button(action: onSettingsTap) {
+                VStack(spacing: 6) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Settings")
+                        .font(.caption2.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Theme.Colors.surface.opacity(0.85))
+                )
+                .foregroundColor(Theme.Colors.highlight)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, bottomInset + 12)
+        .background(
+            Theme.Colors.background
+                .opacity(0.96)
+                .overlay(
+                    Divider()
+                        .background(Theme.Colors.surface.opacity(0.6)),
+                    alignment: .top
+                )
+        )
+    }
+
+}
+
+
+#if os(iOS)
+private var safeAreaBottomInset: CGFloat {
+        guard
+            let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+            let window = scene.windows.first(where: { $0.isKeyWindow })
+        else {
+            return 0
+        }
+        return window.safeAreaInsets.bottom
+    }
+#else
+    private var safeAreaBottomInset: CGFloat { 0 }
+#endif
+
+
+// MARK: - Cast Grid Helpers
+private extension MainView {
+    var gridColumns: [GridItem] {
+        #if os(iOS)
+        let minimum = avatarCardWidth
+        return [GridItem(.adaptive(minimum: minimum), spacing: 18)]
+        #else
+        return [GridItem(.adaptive(minimum: 120), spacing: 18)]
+        #endif
+    }
+
+    var avatarSize: CGFloat {
+        #if os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .pad ? 150 : 116
+        #else
+        return 120
+        #endif
+    }
+
+    var avatarCardWidth: CGFloat {
+        avatarSize + 70
+    }
+}
+
+// MARK: - Background
+private extension MainView {
+    var backgroundLayer: some View {
+        Group {
+            if let movie = movieMetadata, let colors = movie.ultraBlurColors {
+                createGradientBackground(colors: colors)
+                    .ignoresSafeArea()
+            } else {
+                Theme.Colors.background
+                    .ignoresSafeArea()
+            }
+        }
+    }
+}
+
+// MARK: - State helpers
+private extension MainView {
+
+    func storeActorSelection(role: MovieRole) {
+        actorNameStore.storedActorName = role.tag
+        pendingActorName = role.tag
+        selectedActorName = role.tag
+        print("🎬 Selected actor: \(role.tag)")
+    }
+
+    func resetActorSelection() {
+        selectedActorName = ""
+        pendingActorName = ""
+        actorNameStore.storedActorName = ""
+    }
+
+    func resolvedActorName() -> String {
+        if !selectedActorName.isEmpty { return selectedActorName }
+        if !pendingActorName.isEmpty { return pendingActorName }
+        return actorNameStore.storedActorName
+    }
+
+    @ViewBuilder
+    func ratingsRow(title: String, imageKeyword: String, ratings: [MovieRating]) -> some View {
+        let filtered = ratings.filter { ($0.image ?? "").contains(imageKeyword) }
+        if !filtered.isEmpty {
+            HStack(spacing: 12) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(Theme.Colors.highlight)
+                Spacer()
+                ForEach(filtered, id: \.computedId) { rating in
+                    RatingBadgeView(rating: rating, keyword: imageKeyword, formattedValue: rating.value.map(formatRating))
+                }
+            }
+        }
+    }
+
+    func technicalRows(for movie: MovieMetadata) -> [TechnicalRow] {
+        var rows: [TechnicalRow] = []
+
+        if let runtime = movie.duration, runtime > 0 {
+            rows.append(.init(label: "Runtime", value: formatTime(runtime)))
+        }
+
+        if let resolution = movie.technical?.videoResolution, !resolution.isEmpty {
+            rows.append(.init(label: "Resolution", value: resolution.uppercased()))
+        }
+
+        if let codec = movie.technical?.videoCodec, !codec.isEmpty {
+            rows.append(.init(label: "Video Codec", value: codec.uppercased()))
+        }
+
+        if let frameRate = movie.technical?.videoFrameRate, !frameRate.isEmpty {
+            rows.append(.init(label: "Frame Rate", value: "\(frameRate) fps"))
+        }
+
+        if let aspect = movie.technical?.aspectRatio, !aspect.isEmpty {
+            rows.append(.init(label: "Aspect Ratio", value: aspect))
+        }
+
+        if let audioCodec = movie.technical?.audioCodec, !audioCodec.isEmpty {
+            rows.append(.init(label: "Audio Codec", value: audioCodec.uppercased()))
+        }
+
+        if let channels = movie.technical?.audioChannels {
+            rows.append(.init(label: "Audio Channels", value: formattedChannels(channels)))
+        }
+
+        if let bitrate = movie.technical?.bitrate, bitrate > 0 {
+            rows.append(.init(label: "Bitrate", value: formatBitrate(bitrate)))
+        }
+
+        if let container = movie.technical?.container, !container.isEmpty {
+            rows.append(.init(label: "Container", value: container.uppercased()))
+        }
+
+        if let fileSize = movie.technical?.fileSize, fileSize > 0 {
+            rows.append(.init(label: "File Size", value: formatFileSize(fileSize)))
+        }
+
+        return rows
+    }
+
+    func formattedChannels(_ channels: Int) -> String {
+        switch channels {
+        case 6: return "5.1"
+        case 8: return "7.1"
+        default: return "\(channels) ch"
+        }
+    }
+
+    func formatBitrate(_ bitrate: Int) -> String {
+        if bitrate >= 1_000_000 {
+            let mbps = Double(bitrate) / 1_000_000
+            return String(format: "%.1f Mbps", mbps)
+        } else if bitrate >= 1_000 {
+            let kbps = Double(bitrate) / 1_000
+            return String(format: "%.0f Kbps", kbps)
+        } else {
+            return "\(bitrate) bps"
+        }
+    }
+
+    func formatFileSize(_ bytes: Int) -> String {
+        let units = ["B", "KB", "MB", "GB", "TB"]
+        var value = Double(bytes)
+        var unitIndex = 0
+
+        while value >= 1024 && unitIndex < units.count - 1 {
+            value /= 1024
+            unitIndex += 1
+        }
+
+        return String(format: value >= 10 || unitIndex == 0 ? "%.0f %@" : "%.1f %@", value, units[unitIndex])
+    }
+
+    func posterURL(for thumbPath: String?) -> URL? {
         guard let thumbPath = thumbPath else { return nil }
 
-        // If it's already a full URL (like metadata-static.plex.tv), use it directly
         if thumbPath.hasPrefix("http://") || thumbPath.hasPrefix("https://") {
             return URL(string: thumbPath)
         }
 
-        // Otherwise, construct local server URL with auth token
         let urlString = "http://\(plexService.settings.serverIP):32400\(thumbPath)?X-Plex-Token=\(plexService.settings.plexToken)"
         return URL(string: urlString)
     }
 
-    private func thumbnailURL(for thumbPath: String?) -> URL? {
+    func thumbnailURL(for thumbPath: String?) -> URL? {
         guard let thumbPath = thumbPath else { return nil }
 
-        // If it's already a full URL (like metadata-static.plex.tv), use it directly
         if thumbPath.hasPrefix("http://") || thumbPath.hasPrefix("https://") {
             return URL(string: thumbPath)
         }
 
-        // Otherwise, construct local server URL with auth token
         let urlString = "http://\(plexService.settings.serverIP):32400\(thumbPath)?X-Plex-Token=\(plexService.settings.plexToken)"
         return URL(string: urlString)
     }
 
-    private func formatTime(_ milliseconds: Int) -> String {
+    func formatTime(_ milliseconds: Int) -> String {
         let totalSeconds = milliseconds / 1000
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
@@ -741,17 +623,50 @@ struct MainView: View {
         }
     }
 
-    private func loadMovieMetadata() {
+    func refreshSessions() async {
+        print("🔄 MainView: Pull-to-refresh triggered")
+
+        let videoSessionsBeforeRefresh = plexService.activeVideoSessions
+        let currentSessionIndex = plexService.selectedSessionIndex
+
+        await plexService.fetchSessions()
+
+        let videoSessionsAfterRefresh = plexService.activeVideoSessions
+
+        print("🔄 Sessions before refresh: \(videoSessionsBeforeRefresh.count)")
+        print("🔄 Sessions after refresh: \(videoSessionsAfterRefresh.count)")
+        print("🔄 Current selected index: \(currentSessionIndex)")
+
+        if videoSessionsAfterRefresh.isEmpty {
+            plexService.selectedSessionIndex = 0
+            movieMetadata = nil
+            isLoading = false
+            return
+        } else if videoSessionsAfterRefresh.count == 1 {
+            plexService.selectedSessionIndex = 0
+            loadMovieMetadata()
+        } else {
+            if currentSessionIndex < videoSessionsAfterRefresh.count {
+                loadMovieMetadata()
+            } else {
+                plexService.selectedSessionIndex = 0
+                loadMovieMetadata()
+            }
+        }
+    }
+
+    func loadMovieMetadata() {
         let videoSessions = plexService.activeVideoSessions
         guard plexService.selectedSessionIndex < videoSessions.count else {
-            print("⚠️ MainView: selectedSessionIndex \(plexService.selectedSessionIndex) is out of bounds for \(videoSessions.count) sessions")
+            print("⚠️ selectedSessionIndex \(plexService.selectedSessionIndex) is out of bounds for \(videoSessions.count) sessions")
+            movieMetadata = nil
+            isLoading = false
             return
         }
 
         let currentSession = videoSessions[plexService.selectedSessionIndex]
-        print("🎬 MainView: Loading metadata for session \(plexService.selectedSessionIndex): \(currentSession.title ?? "Unknown")")
+        print("🎬 Loading metadata for session \(plexService.selectedSessionIndex): \(currentSession.title ?? "Unknown")")
 
-        // Cancel any existing metadata loading task
         metadataTask?.cancel()
 
         isLoading = true
@@ -761,47 +676,24 @@ struct MainView: View {
             do {
                 let response = try await plexService.getMovieMetadata(ratingKey: currentSession.id)
 
-                // Check if task was cancelled
-                if Task.isCancelled {
-                    print("🔄 MainView: Metadata loading task was cancelled")
-                    return
-                }
+                if Task.isCancelled { return }
 
                 await MainActor.run {
-                    self.movieMetadata = response.mediaContainer.video?.first
-                    if let movie = self.movieMetadata {
-                        print("🎬 Movie loaded: \(movie.title ?? "Unknown")")
-                        if movie.ultraBlurColors != nil {
-                            print("🎨 UltraBlurColors found!")
-                        } else {
-                            print("❌ No UltraBlurColors in movie data")
-                        }
-                    }
-                    self.isLoading = false
+                    movieMetadata = response.mediaContainer.video?.first
+                    isLoading = false
                 }
 
             } catch {
-                // Don't show errors for cancelled tasks
-                if !Task.isCancelled {
-                    await MainActor.run {
-                        print("❌ MainView: Error loading movie metadata: \(error.localizedDescription)")
-                        self.errorMessage = error.localizedDescription
-                        self.isLoading = false
-                    }
-                } else {
-                    print("🔄 MainView: Metadata loading was cancelled")
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    isLoading = false
                 }
             }
         }
     }
 
-     private func createGradientBackground(colors: UltraBlurColors) -> some View {
-        print("🎨 Ultra Blur Colors received:")
-        print("  topLeft: \(colors.topLeft ?? "nil")")
-        print("  topRight: \(colors.topRight ?? "nil")")
-        print("  bottomLeft: \(colors.bottomLeft ?? "nil")")
-        print("  bottomRight: \(colors.bottomRight ?? "nil")")
-
+    func createGradientBackground(colors: UltraBlurColors) -> some View {
         let topLeft = Color(hex: colors.topLeft ?? "000000")
         let topRight = Color(hex: colors.topRight ?? "000000")
         let bottomLeft = Color(hex: colors.bottomLeft ?? "000000")
@@ -809,18 +701,17 @@ struct MainView: View {
 
         return LinearGradient(
             colors: [
-                topLeft.opacity(0.4),
-                topRight.opacity(0.2),
-                bottomLeft.opacity(0.2),
-                bottomRight.opacity(0.4)
+                topLeft.opacity(0.55),
+                topRight.opacity(0.35),
+                bottomLeft.opacity(0.4),
+                bottomRight.opacity(0.55)
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
     }
 
-    // Helper function to safely format rating values
-    private func formatRating(_ value: Double) -> String {
+    func formatRating(_ value: Double) -> String {
         if value.isNaN || value.isInfinite {
             return "N/A"
         }
@@ -828,21 +719,330 @@ struct MainView: View {
     }
 }
 
+// MARK: - Hero Header
+private struct HeroHeaderView: View {
+    let movie: MovieMetadata
+    let posterURL: URL?
+    let onPosterTap: () -> Void
+
+    private let baseHeight: CGFloat = 360
+    private let minHeight: CGFloat = 200
+
+    var body: some View {
+        GeometryReader { geo in
+            let offset = geo.frame(in: .named("mainScroll")).minY
+            let stretchOffset = max(offset, 0)
+            let collapseOffset = min(offset, 0) / 2 // slow collapse speed
+            let height = baseHeight + stretchOffset
+
+            ZStack(alignment: .bottomLeading) {
+                posterBackground(width: geo.size.width, height: height, offset: offset)
+
+                LinearGradient(
+                    colors: [
+                        Theme.Colors.background.opacity(0.0),
+                        Theme.Colors.background.opacity(0.85)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(movie.title ?? "Unknown Title")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(Theme.Colors.text)
+                                .lineLimit(2)
+                            metaRow
+                        }
+                        Spacer()
+                        if posterURL != nil {
+                            Button(action: onPosterTap) {
+                                Image(systemName: "rectangle.portrait.and.arrow.up.right")
+                                    .font(.headline)
+                                    .padding(10)
+                                    .background(Theme.Colors.secondaryAccent.opacity(0.9))
+                                    .foregroundColor(Theme.Colors.background)
+                                    .clipShape(Circle())
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 32)
+            }
+            .frame(height: height)
+            .offset(y: collapseOffset)
+        }
+        .frame(height: baseHeight)
+    }
+
+    @ViewBuilder
+    private func posterBackground(width: CGFloat, height: CGFloat, offset: CGFloat) -> some View {
+        if let posterURL {
+            AsyncImage(url: posterURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                case .failure(_):
+                    fallback
+                case .empty:
+                    fallback
+                @unknown default:
+                    fallback
+                }
+            }
+            .frame(width: max(width, UIScreen.main.bounds.width), height: height)
+            .clipped()
+        } else {
+            fallback
+                .frame(width: max(width, UIScreen.main.bounds.width), height: height)
+        }
+    }
+
+    private var metaRow: some View {
+        HStack(spacing: 12) {
+            if let year = movie.year {
+                MetaChip(text: String(year))
+            }
+            if let duration = movie.duration {
+                MetaChip(text: formatRuntime(duration))
+            }
+            if let contentRating = movie.contentRating {
+                MetaChip(text: contentRating)
+            }
+        }
+    }
+
+    private var fallback: some View {
+        LinearGradient(
+            colors: [
+                Theme.Colors.background,
+                Theme.Colors.surface.opacity(0.6)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private func formatRuntime(_ millis: Int) -> String {
+        let minutes = millis / 60000
+        if minutes >= 60 {
+            let hours = minutes / 60
+            let remainder = minutes % 60
+            return "\(hours)h \(remainder)m"
+        } else {
+            return "\(minutes)m"
+        }
+    }
+
+    private struct MetaChip: View {
+        let text: String
+        var body: some View {
+            Text(text)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Theme.Colors.background.opacity(0.65))
+                .foregroundColor(Theme.Colors.text)
+                .clipShape(Capsule())
+        }
+    }
+}
+
+// MARK: - Reusable Views
+private struct SectionHeaderView: View {
+    let title: String
+    let iconName: String
+
+    var body: some View {
+        HStack {
+            Label(title, systemImage: iconName)
+                .font(.system(.title3, design: .default).weight(.semibold))
+                .foregroundColor(Theme.Colors.text)
+            Spacer()
+        }
+    }
+}
+
+private struct LabeledRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(Theme.Colors.highlight)
+            Spacer()
+            Text(value)
+                .font(Theme.Typography.body)
+                .foregroundColor(Theme.Colors.text)
+        }
+    }
+}
+
+private struct RatingBadgeView: View {
+    let rating: MovieRating
+    let keyword: String
+    let formattedValue: String?
+
+    @ViewBuilder
+    private var labelView: some View {
+        if keyword.contains("rottentomatoes") {
+            if rating.type == "critic" {
+                Text("🍅")
+            } else {
+                Image(systemName: "person.3.fill")
+            }
+        } else if keyword.contains("imdb") {
+            Text("IMDb")
+                .font(.caption2.weight(.bold))
+        } else if keyword.contains("themoviedb") {
+            Text("TMDb")
+                .font(.caption2.weight(.bold))
+        } else {
+            Image(systemName: "star.fill")
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            labelView
+            if let formattedValue {
+                Text(formattedValue)
+                    .font(.caption.weight(.semibold))
+            }
+        }
+        .font(.caption)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Theme.Colors.surface.opacity(0.85))
+        .foregroundColor(Theme.Colors.text)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct ExpandableText: View {
+    let text: String
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(text)
+                .font(Theme.Typography.body)
+                .foregroundColor(Theme.Colors.text)
+                .lineLimit(isExpanded ? nil : 4)
+
+            Button(isExpanded ? "Show Less" : "Read More") {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    isExpanded.toggle()
+                }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundColor(Theme.Colors.secondaryAccent)
+        }
+    }
+}
+
+private struct CastAvatarCard: View {
+    let role: MovieRole
+    let imageSize: CGFloat
+    let cardWidth: CGFloat
+    let thumbnailURL: URL?
+
+    var body: some View {
+        VStack(spacing: 10) {
+            AsyncImage(url: thumbnailURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                case .failure(_):
+                    placeholder
+                case .empty:
+                    placeholder.overlay(
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: Theme.Colors.primaryAccent))
+                    )
+                @unknown default:
+                    placeholder
+                }
+            }
+            .frame(width: imageSize, height: imageSize)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(Theme.Colors.primaryAccent.opacity(0.25), lineWidth: 1)
+            )
+            .shadow(color: Theme.Colors.primaryAccent.opacity(0.18), radius: 8, y: 4)
+
+            VStack(spacing: 4) {
+                Text(role.tag)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(Theme.Colors.text)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity)
+                if let character = role.role, !character.isEmpty {
+                    Text(character)
+                        .font(.caption)
+                        .foregroundColor(Theme.Colors.highlight)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 10)
+        .frame(width: cardWidth)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Theme.Colors.surface.opacity(0.75))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Theme.Colors.highlight.opacity(0.08), lineWidth: 1)
+                )
+        )
+    }
+
+    private var placeholder: some View {
+        Circle()
+            .fill(Theme.Colors.surface.opacity(0.7))
+            .overlay(
+                Image(systemName: "person.fill")
+                    .font(.system(size: 34))
+                    .foregroundColor(Theme.Colors.highlight)
+            )
+    }
+}
+
+private struct TechnicalRow: Identifiable {
+    let id = UUID()
+    let label: String
+    let value: String
+}
+
 // Simplified flow layout for pill-shaped items (iOS 15 compatible)
 struct SimpleFlowLayout<Data: RandomAccessCollection, Content: View>: View where Data.Element: Identifiable {
     let items: Data
     let spacing: CGFloat
     let content: (Data.Element) -> Content
-    
+
     init(_ items: Data, spacing: CGFloat = 8, @ViewBuilder content: @escaping (Data.Element) -> Content) {
         self.items = items
         self.spacing = spacing
         self.content = content
     }
-    
+
     var body: some View {
         LazyVStack(alignment: .leading, spacing: spacing) {
-            ForEach(Array(createRows()), id: \.0) { rowIndex, rowItems in
+            ForEach(Array(createRows()), id: \.0) { _, rowItems in
                 HStack(spacing: spacing) {
                     ForEach(rowItems) { item in
                         content(item)
@@ -852,31 +1052,28 @@ struct SimpleFlowLayout<Data: RandomAccessCollection, Content: View>: View where
             }
         }
     }
-    
+
     private func createRows() -> [(Int, [Data.Element])] {
         var rows: [(Int, [Data.Element])] = []
         var currentRow: [Data.Element] = []
         var rowIndex = 0
-        
-        // For simplicity, we'll put 3-4 items per row
-        // This works well for genre/country pills
+
         let itemsPerRow = 3
-        
+
         for item in items {
             currentRow.append(item)
-            
+
             if currentRow.count == itemsPerRow {
                 rows.append((rowIndex, currentRow))
                 currentRow = []
                 rowIndex += 1
             }
         }
-        
-        // Add remaining items
+
         if !currentRow.isEmpty {
             rows.append((rowIndex, currentRow))
         }
-        
+
         return rows
     }
 }
@@ -918,6 +1115,7 @@ struct PosterDetailView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
+            .background(Theme.Colors.background.ignoresSafeArea())
             .navigationTitle(movieTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -930,9 +1128,3 @@ struct PosterDetailView: View {
         }
     }
 }
-
-#Preview {
-    MainView(plexService: PlexService())
-}
-
-// Custom modifier to conditionally apply frame dimensions  
