@@ -68,6 +68,36 @@ xcodebuild -project "Castarr.xcodeproj" -scheme "Castarr" \
 
 No API key required for IMDb — uses free public API.
 
+## Privacy Policy
+
+Castarr is a client‑side companion for Plex. It does not run a developer‑controlled backend and does not collect analytics or tracking data.
+
+What we store (on your device only)
+- Plex Server IP address you provide in Settings
+- Plex authentication token and basic account info returned by Plex (username, optional account email/ID)
+- Lightweight, non‑personal cache of public IMDb metadata
+
+How your data is used
+- Your Plex token is used only to authenticate with Plex.tv and your Plex Media Server to fetch sessions, metadata, and artwork.
+- Data never leaves your device except when talking directly to Plex services and the public IMDb API to fetch public metadata.
+- We do not sell, share, or transmit your personal data to the developer or third parties beyond these requests.
+
+Third‑party services
+- Plex.tv (OAuth) and your Plex Media Server (content metadata and sessions)
+- IMDb public API at `api.imdbapi.dev` (movie, people, and ratings metadata — no API key required)
+- These services receive your IP address and standard HTTP headers as part of normal internet requests. We do not send them any additional personal data beyond what is required for the request.
+
+Data retention and deletion
+- Stored settings and tokens remain on your device until you log out or uninstall the app.
+- Use Settings → Logout to clear your Plex token and account details from the app.
+- Deleting the app removes all app data from your device. If device or iCloud backups are enabled, data may be included in your encrypted backups.
+
+Children’s privacy
+- Castarr is intended for general audiences and does not knowingly collect personal information from children under 13.
+
+Contact
+- Questions or requests related to privacy: open an issue in this repository or email support at: beastlyhobos@gmail.com.
+
 ## Attribution
 
 Castarr is based on and inspired by the original RoleCall project — credit to the original creator for the foundational work and ideas. This fork includes a new brand, UI/UX refinements, network resiliency, and expanded views.
