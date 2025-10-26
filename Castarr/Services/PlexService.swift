@@ -1320,6 +1320,9 @@ class MovieMetadataXMLParserDelegate: NSObject, XMLParserDelegate {
             let originallyAvailableAt = attributeDict["originallyAvailableAt"]
             let audioChannels = Int(attributeDict["audioChannels"] ?? "")
             let bitrate = Int(attributeDict["bitrate"] ?? "")
+            let parentTitle = attributeDict["parentTitle"]
+            let grandparentTitle = attributeDict["grandparentTitle"]
+            let type = attributeDict["type"]
             currentTechnical = MovieTechnicalInfo(
                 videoResolution: attributeDict["videoResolution"],
                 videoCodec: attributeDict["videoCodec"],
@@ -1349,6 +1352,9 @@ class MovieMetadataXMLParserDelegate: NSObject, XMLParserDelegate {
                 art: art,
                 originallyAvailableAt: originallyAvailableAt,
                 guid: attributeDict["guid"],
+                parentTitle: parentTitle,
+                grandparentTitle: grandparentTitle,
+                type: type,
                 roles: [],
                 directors: [],
                 writers: [],

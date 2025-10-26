@@ -415,6 +415,9 @@ struct MovieMetadata: Codable, Identifiable {
     var art: String?
     var originallyAvailableAt: String?
     var guid: String? // External metadata provider ID
+    var parentTitle: String?
+    var grandparentTitle: String?
+    var type: String?
 
     // Cast and Crew
     var roles: [MovieRole]?
@@ -430,6 +433,7 @@ struct MovieMetadata: Codable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id = "ratingKey"
         case title, year, studio, summary, rating, audienceRating, audienceRatingImage, contentRating, duration, tagline, thumb, art, originallyAvailableAt, guid
+        case parentTitle, grandparentTitle, type
         case roles = "Role"
         case directors = "Director"
         case writers = "Writer"
@@ -460,6 +464,16 @@ struct MovieMetadata: Codable, Identifiable {
         }
         
         return nil
+    }
+    
+    var isEpisode: Bool {
+        if let explicitType = type?.lowercased(), explicitType == "episode" {
+            return true
+        }
+        if let grandparentTitle = grandparentTitle, !grandparentTitle.isEmpty {
+            return true
+        }
+        return false
     }
     
     private func extractIMDbID(from guid: String) -> String? {

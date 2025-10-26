@@ -41,6 +41,7 @@ struct MainView: View {
 
     // Background tasks
     @State private var metadataTask: Task<Void, Never>?
+    @State private var lastScrollOffset: CGFloat = 0
 
     // Persistent helpers
     @StateObject private var actorNameStore = ActorNameStore()
@@ -67,62 +68,74 @@ struct MainView: View {
     }
 
     var body: some View {
-        ScrollViewReader { scrollProxy in
-            ZStack {
-                backgroundLayer
+        GeometryReader { rootGeometry in
+            let safeTop = resolvedSafeTopInset(rootGeometry.safeAreaInsets.top)
+            let safeBottom = resolvedSafeBottomInset(rootGeometry.safeAreaInsets.bottom)
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    contentStack
-                        .padding(.bottom, 80) // space for bottom menu
+            ScrollViewReader { scrollProxy in
+                ZStack {
+                    backgroundLayer
+
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 0) {
+                            topSpacer()
+
+                            contentStack(safeTop: safeTop)
+                                .padding(.bottom, 80) // space for bottom menu
+                        }
+                    }
+                    .coordinateSpace(name: "mainScroll")
+                    .onPreferenceChange(ScrollOffsetPreferenceKey.self) { offset in
+                        handleScrollOffsetChange(offset)
+                    }
+                    .refreshable {
+                        await refreshSessions()
+                    }
                 }
-                .coordinateSpace(name: "mainScroll")
-                .refreshable {
-                    await refreshSessions()
+                .safeAreaInset(edge: .bottom) {
+                    GeometryReader { geometry in
+                        BottomSectionBar(
+                            sections: DetailSection.allCases,
+                            activeSection: activeSection,
+                            onSelect: { section in
+                                withAnimation(.easeInOut(duration: 0.35)) {
+                                    scrollProxy.scrollTo(section.scrollID, anchor: .top)
+                                }
+                                activeSection = section
+                            },
+                            onSettingsTap: onSettingsTap,
+                            bottomInset: geometry.safeAreaInsets.bottom
+                        )
+                        .padding(.bottom, geometry.safeAreaInsets.bottom)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    }
+                    .frame(height: 70) // make the inset content just overlay at the bottom
                 }
-            }
-            .safeAreaInset(edge: .bottom) {
-                GeometryReader { geometry in
-                    BottomSectionBar(
-                        sections: DetailSection.allCases,
-                        activeSection: activeSection,
-                        onSelect: { section in
-                            withAnimation(.easeInOut(duration: 0.35)) {
-                                scrollProxy.scrollTo(section.scrollID, anchor: .top)
-                            }
-                            activeSection = section
-                        },
-                        onSettingsTap: onSettingsTap,
-                        bottomInset: geometry.safeAreaInsets.bottom
-                    )
-                    .padding(.bottom, geometry.safeAreaInsets.bottom)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .overlay(alignment: .bottomTrailing) {
+                    sessionSwitcher(safeBottomInset: safeBottom)
                 }
-                .frame(height: 70) // make the inset content just overlay at the bottom
-            }
-            .overlay(alignment: .bottomTrailing) {
-                sessionSwitcher
-            }
-            .onAppear {
-                Task {
-                    await plexService.fetchSessions()
+                .onAppear {
+                    Task {
+                        await plexService.fetchSessions()
+                        loadMovieMetadata()
+                    }
+                }
+                .onDisappear {
+                    metadataTask?.cancel()
+                }
+                .onChange(of: plexService.selectedSessionIndex) { _ in
+                    isSessionMenuPresented = false
                     loadMovieMetadata()
                 }
-            }
-            .onDisappear {
-                metadataTask?.cancel()
-            }
-            .onChange(of: plexService.selectedSessionIndex) { _ in
-                isSessionMenuPresented = false
-                loadMovieMetadata()
-            }
-            .onChange(of: plexService.activeVideoSessions.count) { newCount in
-                if newCount <= 1 {
-                    isSessionMenuPresented = false
+                .onChange(of: plexService.activeVideoSessions.count) { newCount in
+                    if newCount <= 1 {
+                        isSessionMenuPresented = false
+                    }
+                    loadMovieMetadata()
                 }
-                loadMovieMetadata()
-            }
-            .onChange(of: movieMetadata?.id) { _ in
-                activeSection = .overview
+                .onChange(of: movieMetadata?.id) { _ in
+                    activeSection = .overview
+                }
             }
         }
         .sheet(isPresented: $showingActorDetail, onDismiss: resetActorSelection) {
@@ -147,7 +160,7 @@ struct MainView: View {
 
 // MARK: - Content
 private extension MainView {
-    var contentStack: some View {
+    func contentStack(safeTop: CGFloat) -> some View {
         VStack(spacing: 28) {
             if isLoading {
                 VStack(spacing: 16) {
@@ -176,7 +189,7 @@ private extension MainView {
             } else if plexService.activeVideoSessions.isEmpty {
                 emptyStateView
             } else if let movie = movieMetadata {
-                heroSection(for: movie)
+                heroSection(for: movie, safeTop: safeTop)
                     .id("hero")
 
                 overviewSection(for: movie)
@@ -206,8 +219,45 @@ private extension MainView {
         }
     }
 
+    func topSpacer() -> some View {
+        GeometryReader { geo in
+            Color.clear
+                .preference(
+                    key: ScrollOffsetPreferenceKey.self,
+                    value: geo.frame(in: .named("mainScroll")).minY
+                )
+        }
+        .frame(height: 1)
+    }
+
+    func resolvedSafeTopInset(_ provided: CGFloat) -> CGFloat {
+        #if os(iOS)
+        if provided > 0 {
+            return provided
+        }
+        if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+           let window = scene.windows.first(where: { $0.isKeyWindow }) {
+            return window.safeAreaInsets.top
+        }
+        #endif
+        return provided
+    }
+
+    func resolvedSafeBottomInset(_ provided: CGFloat) -> CGFloat {
+        #if os(iOS)
+        if provided > 0 {
+            return provided
+        }
+        if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+           let window = scene.windows.first(where: { $0.isKeyWindow }) {
+            return window.safeAreaInsets.bottom
+        }
+        #endif
+        return provided
+    }
+
     @ViewBuilder
-    var sessionSwitcher: some View {
+    func sessionSwitcher(safeBottomInset: CGFloat) -> some View {
         if plexService.activeVideoSessions.isEmpty {
             EmptyView()
         } else {
@@ -222,7 +272,7 @@ private extension MainView {
                 }
             )
             .padding(.trailing, 20)
-            .padding(.bottom, 90 + safeAreaBottomInset)
+            .padding(.bottom, 90 + safeBottomInset)
         }
     }
 
@@ -254,10 +304,11 @@ private extension MainView {
         .padding(.top, 120)
     }
 
-    func heroSection(for movie: MovieMetadata) -> some View {
+    func heroSection(for movie: MovieMetadata, safeTop: CGFloat) -> some View {
         HeroHeaderView(
             movie: movie,
             posterURL: posterURL(for: movie.thumb),
+            safeAreaTopInset: safeTop,
             onPosterTap: {
                 showingPosterDetail = true
             }
@@ -585,21 +636,6 @@ private struct SessionSwitcherControl: View {
 }
 
 
-#if os(iOS)
-private var safeAreaBottomInset: CGFloat {
-        guard
-            let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
-            let window = scene.windows.first(where: { $0.isKeyWindow })
-        else {
-            return 0
-        }
-        return window.safeAreaInsets.bottom
-    }
-#else
-    private var safeAreaBottomInset: CGFloat { 0 }
-#endif
-
-
 // MARK: - Cast Grid Helpers
 private extension MainView {
     var gridColumns: [GridItem] {
@@ -816,6 +852,18 @@ private extension MainView {
         loadMovieMetadata()
     }
 
+    func handleScrollOffsetChange(_ offset: CGFloat) {
+        let delta = abs(offset - lastScrollOffset)
+        if delta > 2 {
+            if isSessionMenuPresented {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+                    isSessionMenuPresented = false
+                }
+            }
+        }
+        lastScrollOffset = offset
+    }
+
     func loadMovieMetadata() {
         guard let currentSession = plexService.selectedVideoSession else {
             print("⚠️ No selected session available for metadata fetch")
@@ -882,20 +930,23 @@ private extension MainView {
 private struct HeroHeaderView: View {
     let movie: MovieMetadata
     let posterURL: URL?
+    let safeAreaTopInset: CGFloat
     let onPosterTap: () -> Void
 
     private let baseHeight: CGFloat = 360
-    private let minHeight: CGFloat = 200
+    private let contentTopPadding: CGFloat = 24
 
     var body: some View {
         GeometryReader { geo in
             let offset = geo.frame(in: .named("mainScroll")).minY
             let stretchOffset = max(offset, 0)
             let collapseOffset = min(offset, 0) / 2 // slow collapse speed
+            let topPadding = max(safeAreaTopInset, 0)
             let height = baseHeight + stretchOffset
+            let totalHeight = height + topPadding
 
             ZStack(alignment: .bottomLeading) {
-                posterBackground(width: geo.size.width, height: height, offset: offset)
+                posterBackground(width: geo.size.width, height: totalHeight, offset: offset)
 
                 LinearGradient(
                     colors: [
@@ -909,10 +960,21 @@ private struct HeroHeaderView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(movie.title ?? "Unknown Title")
-                                .font(.system(size: 32, weight: .bold))
-                                .foregroundColor(Theme.Colors.text)
-                                .lineLimit(2)
+                            if let series = seriesTitle {
+                                Text(series)
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(Theme.Colors.highlight)
+                                    .lineLimit(1)
+                                Text(displayTitle)
+                                    .font(.system(size: 32, weight: .bold))
+                                    .foregroundColor(Theme.Colors.text)
+                                    .lineLimit(2)
+                            } else {
+                                Text(displayTitle)
+                                    .font(.system(size: 32, weight: .bold))
+                                    .foregroundColor(Theme.Colors.text)
+                                    .lineLimit(2)
+                            }
                             metaRow
                         }
                         Spacer()
@@ -928,13 +990,14 @@ private struct HeroHeaderView: View {
                         }
                     }
                 }
+                .padding(.top, contentTopPadding + topPadding)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 32)
             }
-            .frame(height: height)
+            .frame(height: totalHeight)
             .offset(y: collapseOffset)
         }
-        .frame(height: baseHeight)
+        .frame(height: baseHeight + max(safeAreaTopInset, 12))
     }
 
     @ViewBuilder
@@ -960,6 +1023,21 @@ private struct HeroHeaderView: View {
             fallback
                 .frame(width: max(width, UIScreen.main.bounds.width), height: height)
         }
+    }
+
+    private var displayTitle: String {
+        movie.title ?? "Unknown Title"
+    }
+
+    private var seriesTitle: String? {
+        guard movie.isEpisode else { return nil }
+        if let grandparent = movie.grandparentTitle, !grandparent.isEmpty {
+            return grandparent
+        }
+        if let parent = movie.parentTitle, !parent.isEmpty {
+            return parent
+        }
+        return nil
     }
 
     private var metaRow: some View {
@@ -1178,6 +1256,14 @@ private struct CastAvatarCard: View {
                     .font(.system(size: 34))
                     .foregroundColor(Theme.Colors.highlight)
             )
+    }
+}
+
+private struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
