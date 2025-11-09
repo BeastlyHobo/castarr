@@ -1,6 +1,6 @@
 //
 //  DemoService.swift
-//  RoleCall
+//  Castarr
 //
 //  Created for demo mode functionality
 //
@@ -10,7 +10,9 @@ import Foundation
 @MainActor
 class DemoService {
     static let shared = DemoService()
-    static let demoEmail = "rolecalldemo@yahoo.com"
+    static let demoEmail = "castarrdemo@yahoo.com"
+    private let imdbService = IMDbService()
+    private let demoIMDbID = "tt0063350"
     
     private init() {}
     
@@ -52,10 +54,10 @@ class DemoService {
         let mockVideoSession = VideoSession(
             id: "12345",
             sessionKey: "mock-session-1",
-            title: "It's A Wonderful Life",
-            year: 1946,
-            duration: 7800000,
-            viewOffset: 3600000,
+            title: "Night of the Living Dead",
+            year: 1968,
+            duration: 5_760_000,
+            viewOffset: 2_520_000,
             user: mockUser,
             player: mockPlayer,
             transcodeSession: mockTranscodeSession
@@ -70,98 +72,86 @@ class DemoService {
         return PlexSessionsResponse(mediaContainer: container)
     }
     
-    func createMockMovieMetadata() -> PlexMovieMetadataResponse {
-        let mockRoles = [
-            MovieRole(id: "nm0000071", tag: "James Stewart", role: "George Bailey", thumb: "https://m.media-amazon.com/images/M/MV5BMjIwNzMzODY0NV5BMl5BanBnXkFtZTcwMDk3NDQyOA@@._V1_.jpg"),
-            MovieRole(id: "nm0715070", tag: "Donna Reed", role: "Mary Hatch Bailey", thumb: "https://m.media-amazon.com/images/M/MV5BMmE5MTNiYTktZWZhMy00MWNmLTlkYTQtNGI5ODRkNzk4ZGQxXkEyXkFqcGc@._V1_.jpg"),
-            MovieRole(id: "nm0000859", tag: "Lionel Barrymore", role: "Mr. Potter", thumb: "https://m.media-amazon.com/images/M/MV5BNzg0NmNlZGItYjQ0ZC00YjEyLThiZGQtNTFhM2MyMmMwODE1XkEyXkFqcGc@._V1_.jpg"),
-            MovieRole(id: "nm0593775", tag: "Thomas Mitchell", role: "Uncle Billy", thumb: "https://m.media-amazon.com/images/M/MV5BOTcwNjAwMDI2M15BMl5BanBnXkFtZTcwNDMyNTUwOA@@._V1_.jpg"),
-            MovieRole(id: "nm0871287", tag: "Henry Travers", role: "Clarence", thumb: "https://m.media-amazon.com/images/M/MV5BMTAxOTA4ODA1MTdeQTJeQWpwZ15BbWU3MDY1MTAwMjg@._V1_.jpg"),
-            MovieRole(id: "nm0093462", tag: "Beulah Bondi", role: "Ma Bailey", thumb: "https://m.media-amazon.com/images/M/MV5BMjAyODAzNTIyOF5BMl5BanBnXkFtZTcwMzEwNjk5Nw@@._V1_.jpg"),
-            MovieRole(id: "nm0269709", tag: "Frank Faylen", role: "Ernie Bishop", thumb: "https://m.media-amazon.com/images/M/MV5BOWY1MjhkMGQtODQ0Yi00ZTU4LTlkZmYtYWU3MWU2MjBiNzc5XkEyXkFqcGc@._V1_.jpg"),
-            MovieRole(id: "nm0000955", tag: "Ward Bond", role: "Bert the Cop", thumb: "https://m.media-amazon.com/images/M/MV5BMTQxNDA1Nzk5OF5BMl5BanBnXkFtZTcwMzE2NDQyOA@@._V1_.jpg"),
-            MovieRole(id: "nm0340102", tag: "Gloria Grahame", role: "Violet Bick", thumb: "https://m.media-amazon.com/images/M/MV5BYjFhNmU5ZWQtNDllMi00OGMxLWI0Y2EtMGE5ZjNjNTc5ZmY2XkEyXkFqcGc@._V1_.jpg"),
-            MovieRole(id: "nm0912478", tag: "H.B. Warner", role: "Mr. Gower", thumb: "https://m.media-amazon.com/images/M/MV5BMTM1Mjc2NjgwMl5BMl5BanBnXkFtZTcwNTM4NDYwOA@@._V1_.jpg")
-        ]
-        
-        let mockGenres = [
-            MovieGenre(id: "1", tag: "Drama"),
-            MovieGenre(id: "2", tag: "Family"),
-            MovieGenre(id: "3", tag: "Fantasy")
-        ]
-        
-        let mockCountries = [
-            MovieCountry(id: "1", tag: "United States of America")
-        ]
-        
+    func createMockMovieMetadata() async -> PlexMovieMetadataResponse {
+        let imdbDetails = try? await imdbService.getMovieDetails(imdbID: demoIMDbID)
+        let imdbCast = (try? await imdbService.getMovieCast(imdbID: demoIMDbID, limit: 12)) ?? []
+
+        let movieTitle = imdbDetails?.title ?? "Night of the Living Dead"
+        let summary = imdbDetails?.overview ?? defaultSummary
+        let releaseDate = imdbDetails?.releaseDate ?? "1968-10-01"
+        let releaseYear = extractYear(from: releaseDate) ?? 1968
+        let runtimeMinutes = imdbDetails?.runtime ?? 96
+        let posterURL = imdbDetails?.posterPath ?? defaultPosterURL
+        let artURL = imdbDetails?.posterPath ?? defaultPosterURL
+
+        let roles = convertCreditsToMovieRoles(imdbCast)
+        let genres = convertGenres(from: imdbDetails)
+        let countries = convertCountries(from: imdbDetails)
+
         let mockRatings = [
             MovieRating(
                 id: "imdb",
                 image: "imdb://image.rating",
                 type: "audience",
-                value: 8.6,
-                count: 500000
+                value: 7.8,
+                count: 320000
             ),
             MovieRating(
                 id: "tmdb",
                 image: "themoviedb://image.rating",
                 type: "audience",
-                value: 8.4,
-                count: 12000
+                value: 7.6,
+                count: 11000
             )
         ]
         
         let mockGuids = [
-            MovieGuid(id: "imdb://tt0038650"),
-            MovieGuid(id: "tmdb://1585"),
-            MovieGuid(id: "tvdb://76169")
+            MovieGuid(id: "imdb://tt0063350"),
+            MovieGuid(id: "tmdb://10331"),
+            MovieGuid(id: "tvdb://191")
         ]
         
         let mockTechnical = MovieTechnicalInfo(
             videoResolution: "1080",
             videoCodec: "H.264",
-            videoFrameRate: "23.976",
-            aspectRatio: "1.78",
+            videoFrameRate: "24.000",
+            aspectRatio: "1.37",
             audioCodec: "AAC",
-            audioChannels: 6,
+            audioChannels: 2,
             audioProfile: "lc",
             container: "mp4",
-            bitrate: 12000000,
-            fileSize: 3_580_000_000
+            bitrate: 6_500_000,
+            fileSize: 2_050_000_000
         )
         
         let mockMovie = MovieMetadata(
             id: "12345",
-            title: "It's A Wonderful Life",
-            year: 1946,
-            studio: "Liberty Films",
-            summary: "George Bailey has spent his entire life giving of himself to the people of Bedford Falls. He has always longed to travel but never had the opportunity in order to prevent rich skinflint Mr. Potter from taking over the entire town. All that prevents him from doing so is George's modest building and loan company, which was founded by his generous father. On Christmas Eve 1945, George is about to jump from a bridge when into the icy water below when he is rescued by Clarence Odbody, a gentle angel who has yet to earn his wings. Clarence then shows George what things would have been like if he had never been born.",
-            rating: 8.6,
-            audienceRating: 8.4,
+            title: movieTitle,
+            year: releaseYear,
+            studio: imdbDetails?.productionCompanies?.first?.name ?? "Image Ten",
+            summary: summary,
+            rating: imdbDetails?.voteAverage ?? 7.8,
+            audienceRating: imdbDetails?.voteAverage ?? 7.6,
             audienceRatingImage: "rottentomatoes://image.rating.upright",
-            contentRating: "PG",
-            duration: 7800000,
-            tagline: "It's a wonderful laugh! It's a wonderful love!",
-            thumb: "https://m.media-amazon.com/images/M/MV5BMDM4OWFhYjEtNTE5Yy00NjcyLTg5N2UtZDQwNDZlYjlmNDU5XkEyXkFqcGc@._V1_.jpg",
-            art: "https://m.media-amazon.com/images/M/MV5BMDM4OWFhYjEtNTE5Yy00NjcyLTg5N2UtZDQwNDZlYjlmNDU5XkEyXkFqcGc@._V1_.jpg",
-            originallyAvailableAt: "1946-12-20",
-            guid: "imdb://tt0038650",
-            roles: mockRoles,
-            directors: [MovieDirector(id: "nm0001008", tag: "Frank Capra", thumb: "https://m.media-amazon.com/images/M/MV5BNGNjYTM0MmMtYmMwZC00NWRjLWE3MDAtNDEyYWY3NWIzZTM1XkEyXkFqcGc@._V1_.jpg")],
-            writers: [
-                MovieWriter(id: "nm0329304", tag: "Frances Goodrich", thumb: nil),
-                MovieWriter(id: "nm0352443", tag: "Albert Hackett", thumb: "https://m.media-amazon.com/images/M/MV5BZjk1NjM1NGEtYmVmNi00YjBhLTg0NWItOGVlNmI2ZDQzOTA4XkEyXkFqcGc@._V1_.jpg"),
-                MovieWriter(id: "nm0001008", tag: "Frank Capra", thumb: "https://m.media-amazon.com/images/M/MV5BNGNjYTM0MmMtYmMwZC00NWRjLWE3MDAtNDEyYWY3NWIzZTM1XkEyXkFqcGc@._V1_.jpg")
-            ],
-            genres: mockGenres,
-            countries: mockCountries,
+            contentRating: "NR",
+            duration: runtimeMinutes * 60 * 1000,
+            tagline: imdbDetails?.tagline ?? "They won't stay dead.",
+            thumb: posterURL,
+            art: artURL,
+            originallyAvailableAt: releaseDate,
+            guid: "imdb://\(demoIMDbID)",
+            roles: roles.isEmpty ? defaultRoles : roles,
+            directors: defaultDirectors,
+            writers: defaultWriters,
+            genres: genres,
+            countries: countries,
             ratings: mockRatings,
             guids: mockGuids,
             ultraBlurColors: UltraBlurColors(
-                bottomLeft: "#1a1a1a",
-                bottomRight: "#2a2a2a",
-                topLeft: "#3a3a3a",
-                topRight: "#4a4a4a"
+                bottomLeft: "#070809",
+                bottomRight: "#1a1d1f",
+                topLeft: "#2b3034",
+                topRight: "#3e464b"
             ),
             technical: mockTechnical
         )
@@ -172,6 +162,79 @@ class DemoService {
         )
         
         return PlexMovieMetadataResponse(mediaContainer: container)
+    }
+
+    // MARK: - Helpers
+    private var defaultSummary: String {
+        "When reports spread of the recently dead rising in rural Pennsylvania, strangers seek shelter inside a farmhouse. As the night wears on, the survivors fight off the encroaching ghouls while grappling with their own fear, mistrust, and dwindling options."
+    }
+
+    private var defaultPosterURL: String {
+        placeholderImageURL(width: 720, height: 1080, text: "Night of the Living Dead")
+    }
+
+    private var defaultRoles: [MovieRole] {
+        [
+            MovieRole(id: "nm0429012", tag: "Duane Jones", role: "Ben", thumb: placeholderImageURL(text: "Duane Jones")),
+            MovieRole(id: "nm0640861", tag: "Judith O'Dea", role: "Barbra", thumb: placeholderImageURL(text: "Judith O'Dea")),
+            MovieRole(id: "nm0362208", tag: "Karl Hardman", role: "Harry Cooper", thumb: placeholderImageURL(text: "Karl Hardman")),
+            MovieRole(id: "nm0247504", tag: "Marilyn Eastman", role: "Helen Cooper", thumb: placeholderImageURL(text: "Marilyn Eastman")),
+            MovieRole(id: "nm0907750", tag: "Keith Wayne", role: "Tom", thumb: placeholderImageURL(text: "Keith Wayne")),
+            MovieRole(id: "nm0725998", tag: "Judith Ridley", role: "Judy", thumb: placeholderImageURL(text: "Judith Ridley")),
+            MovieRole(id: "nm0775032", tag: "Kyra Schon", role: "Karen Cooper", thumb: placeholderImageURL(text: "Kyra Schon")),
+            MovieRole(id: "nm0834359", tag: "Russell Streiner", role: "Johnny", thumb: placeholderImageURL(text: "Russell Streiner")),
+            MovieRole(id: "nm0385719", tag: "Bill Hinzman", role: "Cemetery Zombie", thumb: placeholderImageURL(text: "Bill Hinzman")),
+            MovieRole(id: "nm0185849", tag: "Charles Craig", role: "Newscaster", thumb: placeholderImageURL(text: "Charles Craig"))
+        ]
+    }
+
+    private var defaultDirectors: [MovieDirector] {
+        [
+            MovieDirector(id: "nm0001681", tag: "George A. Romero", thumb: placeholderImageURL(text: "George A. Romero"))
+        ]
+    }
+
+    private var defaultWriters: [MovieWriter] {
+        [
+            MovieWriter(id: "nm0750988", tag: "John A. Russo", thumb: placeholderImageURL(text: "John A. Russo")),
+            MovieWriter(id: "nm0001681", tag: "George A. Romero", thumb: placeholderImageURL(text: "George A. Romero"))
+        ]
+    }
+
+    private func extractYear(from releaseDate: String?) -> Int? {
+        guard let releaseDate else { return nil }
+        if releaseDate.count == 4, let year = Int(releaseDate) { return year }
+        return Int(releaseDate.prefix(4))
+    }
+
+    private func convertCreditsToMovieRoles(_ credits: [APICredit]) -> [MovieRole] {
+        credits.compactMap { credit in
+            guard let name = credit.name else { return nil }
+            let id = name.id
+            let actorName = name.displayName
+            let thumb = name.primaryImage?.url ?? placeholderImageURL(text: actorName)
+            let character = credit.characters?.first
+            return MovieRole(id: id, tag: actorName, role: character, thumb: thumb)
+        }
+    }
+
+    private func convertGenres(from details: IMDbMovieDetails?) -> [MovieGenre] {
+        let list = details?.genres?.map { $0.name } ?? ["Horror", "Thriller", "Science Fiction"]
+        return list.enumerated().map { index, value in
+            MovieGenre(id: "\(index + 1)", tag: value)
+        }
+    }
+
+    private func convertCountries(from details: IMDbMovieDetails?) -> [MovieCountry] {
+        let list = details?.productionCountries?.map { $0.name } ?? ["United States of America"]
+        return list.enumerated().map { index, value in
+            MovieCountry(id: "\(index + 1)", tag: value)
+        }
+    }
+
+    private func placeholderImageURL(width: Int = 400, height: Int = 400, text: String) -> String {
+        let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
+        return "https://placehold.co/\(width)x\(height)?text=\(encoded)"
     }
     
     func createMockServerCapabilities() -> PlexCapabilitiesResponse {

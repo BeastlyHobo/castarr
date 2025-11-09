@@ -1,6 +1,6 @@
 //
 //  IMDbService.swift
-//  RoleCall
+//  Castarr
 //
 //  Created by Eric on 7/30/25.
 //
@@ -198,6 +198,46 @@ class IMDbService: ObservableObject {
         cleanupCache()
         
         return relationshipsResponse.relationships
+    }
+
+    /// Get movie details by IMDb title ID (e.g., tt0063350)
+    func getMovieDetails(imdbID: String) async throws -> IMDbMovieDetails {
+        print("🎞️ IMDb: Fetching movie details for \(imdbID)")
+        let cacheKey = "movie_\(imdbID)"
+        if let cached = cache[cacheKey] as? (data: IMDbMovieDetails, timestamp: Date) {
+            if Date().timeIntervalSince(cached.timestamp) < cacheTimeout {
+                print("🗄️ Using cached movie details for \(imdbID)")
+                return cached.data
+            }
+        }
+
+        let details = try await fetchMovieDetails(titleID: imdbID)
+        cache[cacheKey] = (data: details, timestamp: Date())
+        cleanupCache()
+        return details
+    }
+
+    /// Get top billed cast credits for a movie by IMDb title ID
+    func getMovieCast(imdbID: String, limit: Int = 10) async throws -> [APICredit] {
+        print("🎭 IMDb: Fetching movie cast for \(imdbID)")
+        let cacheKey = "movieCast_\(imdbID)"
+        if let cached = cache[cacheKey] as? (data: [APICredit], timestamp: Date) {
+            if Date().timeIntervalSince(cached.timestamp) < cacheTimeout {
+                print("🗄️ Using cached cast for \(imdbID)")
+                return cached.data
+            }
+        }
+
+        let creditsResponse = try await fetchCredits(imdbID: imdbID)
+        let actingCategories: Set<String> = ["ACTOR", "ACTRESS", "SELF"]
+        let cast = creditsResponse.credits.filter { credit in
+            guard let category = credit.category?.uppercased() else { return false }
+            return actingCategories.contains(category)
+        }
+        let limitedCast = Array(cast.prefix(limit))
+        cache[cacheKey] = (data: limitedCast, timestamp: Date())
+        cleanupCache()
+        return limitedCast
     }
     
     /// Get trivia for a person by IMDb name ID

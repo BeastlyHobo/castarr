@@ -100,7 +100,7 @@ Contact
 
 ## Attribution
 
-Castarr is based on and inspired by the original RoleCall project — credit to the original creator for the foundational work and ideas. This fork includes a new brand, UI/UX refinements, network resiliency, and expanded views.
+Castarr began as a fork of an earlier open-source Plex companion — credit to the original creator for the foundational work and ideas. This iteration adds a new brand, deeper UI/UX refinements, network resiliency, and expanded views tailored for power users.
 
 ## License
 

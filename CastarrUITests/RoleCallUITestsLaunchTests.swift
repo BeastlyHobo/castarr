@@ -1,13 +1,13 @@
 //
-//  RoleCallUITestsLaunchTests.swift
-//  RoleCallUITests
+//  CastarrUITestsLaunchTests.swift
+//  CastarrUITests
 //
 //  Created by Eric on 7/28/25.
 //
 
 import XCTest
 
-final class RoleCallUITestsLaunchTests: XCTestCase {
+final class CastarrUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

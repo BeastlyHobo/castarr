@@ -6,20 +6,19 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXContainerItemProxy section */
 		074F19092E38017800221B80 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 074F18F32E38017700221B80 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 074F18FA2E38017700221B80;
-			remoteInfo = RoleCall;
+			remoteInfo = Castarr;
 		};
 		074F19132E38017800221B80 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 074F18F32E38017700221B80 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 074F18FA2E38017700221B80;
-			remoteInfo = RoleCall;
+			remoteInfo = Castarr;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -126,7 +125,7 @@
 			name = Castarr;
 			packageProductDependencies = (
 			);
-			productName = RoleCall;
+			productName = Castarr;
 			productReference = 074F18FB2E38017700221B80 /* Castarr.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -149,7 +148,7 @@
 			name = CastarrTests;
 			packageProductDependencies = (
 			);
-			productName = RoleCallTests;
+			productName = CastarrTests;
 			productReference = 074F19082E38017800221B80 /* CastarrTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
@@ -172,7 +171,7 @@
 			name = CastarrUITests;
 			packageProductDependencies = (
 			);
-			productName = RoleCallUITests;
+			productName = CastarrUITests;
 			productReference = 074F19122E38017800221B80 /* CastarrUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
@@ -523,7 +522,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = RoleCall;
+				TEST_TARGET_NAME = Castarr;
 			};
 			name = Debug;
 		};
@@ -541,7 +540,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = RoleCall;
+				TEST_TARGET_NAME = Castarr;
 			};
 			name = Release;
 		};

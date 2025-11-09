@@ -1,6 +1,6 @@
 //
 //  PlexService.swift
-//  RoleCall
+//  Castarr
 //
 //  Created by Eric on 7/28/25.
 //
@@ -138,7 +138,7 @@ class PlexService: ObservableObject {
             isLoggedIn = true
             serverCapabilities = demoService.createMockServerCapabilities()
             sessions = demoService.createMockSessionsResponse()
-            movieMetadata = demoService.createMockMovieMetadata()
+            movieMetadata = await demoService.createMockMovieMetadata()
             activities = demoService.createMockActivitiesResponse()
             let demoVideoSessions = sessions?.mediaContainer.video ?? []
             reconcileSelectedVideoSession(with: demoVideoSessions, previousSelectedSessionID: nil)
@@ -702,7 +702,7 @@ class PlexService: ObservableObject {
     // MARK: - Movie Metadata
     func getMovieMetadata(ratingKey: String) async throws -> PlexMovieMetadataResponse {
         if isDemoMode {
-            return demoService.createMockMovieMetadata()
+            return await demoService.createMockMovieMetadata()
         }
         
         guard !settings.serverIP.isEmpty, !settings.plexToken.isEmpty else {
