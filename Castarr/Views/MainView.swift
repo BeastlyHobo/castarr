@@ -26,7 +26,7 @@ struct MainView: View {
 
     // Hero / section state
     @State private var isSummaryExpanded = false
-    @State private var activeSection: DetailSection = .overview
+    @State private var activeSection: DetailSection = .cast
 
     // Bottom sheet presentation
     @State private var showingActorDetail = false
@@ -49,19 +49,19 @@ struct MainView: View {
 
     // Sections available for quick navigation
     enum DetailSection: String, CaseIterable, Identifiable {
+        case cast = "Cast"
         case overview = "Overview"
         case ratings = "Ratings"
         case details = "Details"
-        case cast = "Cast"
 
         var id: String { rawValue }
         var title: String { rawValue }
         var icon: String {
             switch self {
+            case .cast: return "person.3.fill"
             case .overview: return "text.justify.left"
             case .ratings: return "star.circle.fill"
             case .details: return "gearshape.fill"
-            case .cast: return "person.3.fill"
             }
         }
         var scrollID: String { "section-\(rawValue.lowercased())" }
@@ -134,7 +134,7 @@ struct MainView: View {
                     loadMovieMetadata()
                 }
                 .onChange(of: movieMetadata?.id) { _ in
-                    activeSection = .overview
+                    activeSection = .cast
                 }
             }
         }
@@ -192,6 +192,21 @@ private extension MainView {
                 heroSection(for: movie, safeTop: safeTop)
                     .id("hero")
 
+                if let cast = movie.roles, !cast.isEmpty {
+                    CastSpotlightRow(
+                        cast: cast,
+                        thumbnailURL: { thumbnailURL(for: $0) },
+                        onSelect: { role in
+                            storeActorSelection(role: role)
+                            showingActorDetail = true
+                        }
+                    )
+                    .id(DetailSection.cast.scrollID)
+                } else {
+                    emptyCastPlaceholder
+                        .id(DetailSection.cast.scrollID)
+                }
+
                 overviewSection(for: movie)
                     .id(DetailSection.overview.scrollID)
 
@@ -204,14 +219,6 @@ private extension MainView {
                 if !techRows.isEmpty {
                     technicalDetailsSection(rows: techRows)
                         .id(DetailSection.details.scrollID)
-                }
-
-                if let cast = movie.roles, !cast.isEmpty {
-                    castSection(cast: cast)
-                        .id(DetailSection.cast.scrollID)
-                } else {
-                    emptyCastPlaceholder
-                        .id(DetailSection.cast.scrollID)
                 }
             } else {
                 placeholderState
@@ -426,6 +433,85 @@ private extension MainView {
         }
         .themeCard()
         .padding(.horizontal, 20)
+    }
+}
+
+// MARK: - Cast Spotlight
+private struct CastSpotlightRow: View {
+    let cast: [MovieRole]
+    let thumbnailURL: (String?) -> URL?
+    let onSelect: (MovieRole) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("Cast", systemImage: "person.3.fill")
+                    .font(.system(.title3, design: .default).weight(.semibold))
+                    .foregroundColor(Theme.Colors.text)
+                Spacer()
+                Text("Tap to explore")
+                    .font(.caption)
+                    .foregroundColor(Theme.Colors.highlight)
+            }
+            .padding(.horizontal, 20)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(cast.prefix(12)) { role in
+                        Button {
+                            onSelect(role)
+                        } label: {
+                            SpotlightActorCard(role: role, thumbnailURL: thumbnailURL(role.thumb))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 4)
+            }
+        }
+    }
+}
+
+private struct SpotlightActorCard: View {
+    let role: MovieRole
+    let thumbnailURL: URL?
+
+    var body: some View {
+        VStack(spacing: 8) {
+            AsyncImage(url: thumbnailURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: .fill)
+                default:
+                    Circle()
+                        .fill(Theme.Colors.surface.opacity(0.7))
+                        .overlay(
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(Theme.Colors.highlight)
+                        )
+                }
+            }
+            .frame(width: 84, height: 84)
+            .clipShape(Circle())
+            .overlay(Circle().stroke(Theme.Colors.primaryAccent.opacity(0.35), lineWidth: 1.5))
+            .shadow(color: Theme.Colors.primaryAccent.opacity(0.2), radius: 6, y: 3)
+
+            Text(role.tag)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(Theme.Colors.text)
+                .lineLimit(1)
+                .frame(width: 84)
+
+            if let character = role.role, !character.isEmpty {
+                Text(character)
+                    .font(.caption2)
+                    .foregroundColor(Theme.Colors.highlight)
+                    .lineLimit(1)
+                    .frame(width: 84)
+            }
+        }
     }
 }
 

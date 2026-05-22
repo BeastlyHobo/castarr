@@ -17,6 +17,8 @@ struct ActorDetailView: View {
 
     @State private var actorDetails: IMDbPersonDetails?
     @State private var movieCredits: IMDbPersonMovieCredits?
+    @State private var actorImages: [APIImage] = []
+    @State private var actorTrivia: [APITriviaItem] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var showingActorPosterDetail = false
@@ -101,8 +103,16 @@ struct ActorDetailView: View {
                 if let details = actorDetails {
                     actorInfoSection(details: details)
 
+                    if !actorImages.isEmpty {
+                        photoGallerySection(images: actorImages)
+                    }
+
                     if let credits = movieCredits {
                         filmographySection(credits: credits)
+                    }
+
+                    if !actorTrivia.isEmpty {
+                        triviaSection(trivia: actorTrivia)
                     }
                 }
             }
@@ -151,6 +161,25 @@ struct ActorDetailView: View {
                         .padding(.vertical, 8)
                         .background(.ultraThinMaterial)
                         .clipShape(Capsule())
+                }
+
+                if let ranking = details.meterRanking, let rank = ranking.currentRank {
+                    HStack(spacing: 6) {
+                        Image(systemName: ranking.isRising ? "chart.line.uptrend.xyaxis" : ranking.isFalling ? "chart.line.downtrend.xyaxis" : "chart.bar.fill")
+                            .foregroundColor(Theme.Colors.secondaryAccent)
+                        Text("IMDb STARmeter #\(rank)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(Theme.Colors.text)
+                        if let diff = ranking.difference, diff > 0 {
+                            Text(ranking.isRising ? "+\(diff)" : "-\(diff)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(ranking.isRising ? .green : .red)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Theme.Colors.surface.opacity(0.85))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
 
                 // Personal Details
@@ -203,6 +232,62 @@ struct ActorDetailView: View {
         return Array(filteredMovies
             .sorted { $0.popularity > $1.popularity }
             .prefix(10))
+    }
+
+    @ViewBuilder
+    private func photoGallerySection(images: [APIImage]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Photos")
+                .font(.title2.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(images.prefix(8), id: \.url) { image in
+                        if let urlString = image.url, let url = URL(string: urlString) {
+                            AsyncImage(url: url) { phase in
+                                switch phase {
+                                case .success(let img):
+                                    img.resizable().aspectRatio(contentMode: .fill)
+                                default:
+                                    Rectangle()
+                                        .fill(Theme.Colors.surface.opacity(0.6))
+                                        .overlay(Image(systemName: "photo").foregroundColor(Theme.Colors.highlight))
+                                }
+                            }
+                            .frame(width: 110, height: 160)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func triviaSection(trivia: [APITriviaItem]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Trivia")
+                .font(.title2.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: 10) {
+                ForEach(trivia.prefix(5)) { item in
+                    Text(item.text)
+                        .font(.body)
+                        .foregroundColor(Theme.Colors.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(Theme.Colors.surface.opacity(0.7))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Theme.Colors.highlight.opacity(0.12), lineWidth: 1)
+                        )
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -349,15 +434,23 @@ struct ActorDetailView: View {
                 return
             }
 
-            // Get detailed information
-            async let detailsTask = imdbService.getPersonDetails(nameID: firstResult.id)
-            async let creditsTask = imdbService.getPersonMovieCredits(nameID: firstResult.id)
+            let nameID = firstResult.id
+
+            // Fetch all data in parallel; images and trivia failures are non-fatal
+            async let detailsTask = imdbService.getPersonDetails(nameID: nameID)
+            async let creditsTask = imdbService.getPersonMovieCredits(nameID: nameID)
+            async let imagesTask = imdbService.getPersonImages(nameID: nameID)
+            async let triviaTask = imdbService.getPersonTrivia(nameID: nameID)
 
             let (details, credits) = try await (detailsTask, creditsTask)
+            let images = (try? await imagesTask) ?? []
+            let trivia = (try? await triviaTask) ?? []
 
             await MainActor.run {
                 self.actorDetails = details
                 self.movieCredits = credits
+                self.actorImages = images.filter { $0.url != nil }
+                self.actorTrivia = trivia
                 self.isLoading = false
             }
 
