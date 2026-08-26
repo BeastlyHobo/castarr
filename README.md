@@ -4,14 +4,14 @@
 
 # Castarr
 
-An iOS app for Plex power‑users to browse active sessions on your Plex Media Server and dive into rich, IMDb‑powered cast details — rebuilt with a refreshed UI, faster networking, and quality‑of‑life improvements.
+An iOS app for Plex power‑users to browse active sessions on your Plex Media Server and dive into rich, TMDB‑powered cast details — rebuilt with a refreshed UI, faster networking, and quality‑of‑life improvements.
 
 ## Features
 
 - **Plex OAuth Login**: Secure authentication via Plex.tv with MFA support
 - **Demo Mode**: Built-in demo account for app reviewers and demos
 - **Active Sessions**: Real‑time view of who’s watching what on your server
-- **Cast + Crew**: IMDb integration for actor bios, photos, filmography
+- **Cast + Crew**: TMDB integration for actor bios, photos, filmography
 - **Movie Details**: Technical info, ratings, and artwork
 - **Server Insights**: Server capabilities, activities, and sessions views
 - **HTTPS/HTTP Fallback**: Better connectivity for self‑hosted, external, or self‑signed setups
@@ -22,7 +22,20 @@ An iOS app for Plex power‑users to browse active sessions on your Plex Media S
 2. Tap "Login with Plex" to authenticate via Plex.tv
 3. Browse active sessions and tap a title to view cast details
 
-No API keys required.
+### Building from source
+
+Cast and film metadata comes from [TMDB](https://www.themoviedb.org), which requires a
+free API token:
+
+1. Create a TMDB account and open [Settings → API](https://www.themoviedb.org/settings/api)
+2. Copy the **API Read Access Token** (the long `eyJ…` value — not the v3 API key)
+3. `cp Secrets.example.xcconfig Secrets.xcconfig` and paste your token in
+4. In Xcode: Project → Info → Configurations → set Debug and Release for the
+   Castarr target to use `Secrets`
+
+`Secrets.xcconfig` is gitignored and must never be committed. Without a token the app
+still runs — Plex sessions, server info, and artwork all work — but cast and film
+enrichment is unavailable.
 
 ## Demo Mode
 
@@ -59,14 +72,18 @@ xcodebuild -project "Castarr.xcodeproj" -scheme "Castarr" \
 - `GET http://{server}:32400/status/sessions?X-Plex-Token={token}` - Active sessions
 - `GET http://{server}:32400/library/metadata/{id}?X-Plex-Token={token}` - Movie metadata
 
-### IMDb (api.imdbapi.dev)
-- `GET /names/{nameId}` - Actor information
-- `GET /names/{nameId}/filmography` - Actor filmography
-- `GET /titles/{titleId}` - Movie details
-- `GET /titles/{titleId}/credits` - Movie cast and crew
-- `GET /search/titles` - Movie search
+### TMDB (api.themoviedb.org/3)
+- `GET /find/{imdb_id}?external_source=imdb_id` - Resolve a Plex IMDb ID to a TMDB record
+- `GET /person/{personId}` - Actor information
+- `GET /person/{personId}/movie_credits` - Actor filmography
+- `GET /person/{personId}/images` - Actor photo gallery
+- `GET /movie/{movieId}` - Movie details
+- `GET /movie/{movieId}/credits` - Movie cast and crew
+- `GET /search/person`, `GET /search/movie` - Search
 
-No API key required for IMDb — uses free public API.
+Requires a free TMDB API Read Access Token — see [Building from source](#building-from-source).
+
+This product uses the TMDB API but is not endorsed or certified by TMDB.
 
 ## Privacy Policy
 
@@ -75,16 +92,16 @@ Castarr is a client‑side companion for Plex. It does not run a developer‑con
 What we store (on your device only)
 - Plex Server IP address you provide in Settings
 - Plex authentication token and basic account info returned by Plex (username, optional account email/ID)
-- Lightweight, non‑personal cache of public IMDb metadata
+- Lightweight, non‑personal cache of public film and cast metadata
 
 How your data is used
 - Your Plex token is used only to authenticate with Plex.tv and your Plex Media Server to fetch sessions, metadata, and artwork.
-- Data never leaves your device except when talking directly to Plex services and the public IMDb API to fetch public metadata.
+- Data never leaves your device except when talking directly to Plex services and the TMDB API to fetch public metadata.
 - We do not sell, share, or transmit your personal data to the developer or third parties beyond these requests.
 
 Third‑party services
 - Plex.tv (OAuth) and your Plex Media Server (content metadata and sessions)
-- IMDb public API at `api.imdbapi.dev` (movie, people, and ratings metadata — no API key required)
+- TMDB API at `api.themoviedb.org` (movie, people, and ratings metadata). Castarr sends only the title or person being looked up; no Plex token or account data is ever sent to TMDB.
 - These services receive your IP address and standard HTTP headers as part of normal internet requests. We do not send them any additional personal data beyond what is required for the request.
 
 Data retention and deletion

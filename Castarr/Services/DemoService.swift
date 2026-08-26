@@ -84,7 +84,10 @@ class DemoService {
         let posterURL = imdbDetails?.posterPath ?? defaultPosterURL
         let artURL = imdbDetails?.posterPath ?? defaultPosterURL
 
-        let roles = convertCreditsToMovieRoles(imdbCast)
+        // App Review must never see an empty cast, so fall back to the static list when
+        // the metadata provider is unreachable or no TMDB token is configured.
+        let fetchedRoles = convertCreditsToMovieRoles(imdbCast)
+        let roles = fetchedRoles.isEmpty ? defaultRoles : fetchedRoles
         let genres = convertGenres(from: imdbDetails)
         let countries = convertCountries(from: imdbDetails)
 

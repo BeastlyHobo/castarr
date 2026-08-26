@@ -3,14 +3,34 @@
 //  Castarr
 //
 //  Created by Eric on 7/30/25.
+//  Migrated from api.imdbapi.dev to TMDB after that service shut down (July 2026).
 //
 
 import Foundation
 
+/// Metadata enrichment service for cast, crew, and film details.
+///
+/// **Data source: The Movie Database (TMDB).**
+///
+/// The type keeps its historical `IMDbService` name because Castarr is keyed on
+/// IMDb IDs: Plex reports `imdb://tt…` GUIDs, and every lookup here begins from one
+/// of those IDs, resolved to a TMDB record through `/find`. TMDB is the provider;
+/// IMDb IDs remain the identifier the rest of the app speaks in.
+///
+/// Requires a TMDB **API Read Access Token** (read-only, v4 auth), supplied at build
+/// time through `Secrets.xcconfig` → `Info.plist` → `TMDB_READ_TOKEN`. When the token
+/// is absent the service throws `IMDbError.missingAPIKey`; callers treat enrichment as
+/// optional, so the app degrades to Plex-only data rather than failing.
 @MainActor
 class IMDbService: ObservableObject {
-    // Updated base URL per imdbapi.dev migration
-    private let baseURL = "https://api.imdbapi.dev"
+    private let baseURL = "https://api.themoviedb.org/3"
+    private let imageBaseURL = "https://image.tmdb.org/t/p"
+
+    /// TMDB profile images come in w45 / w185 / h632 / original.
+    private let defaultProfileSize = "h632"
+    /// TMDB poster images come in w92 / w154 / w185 / w342 / w500 / w780 / original.
+    private let defaultPosterSize = "w780"
+
     private let session: URLSession
 
     // In-memory cache for responses
@@ -18,8 +38,14 @@ class IMDbService: ObservableObject {
     private let cacheTimeout: TimeInterval = 3600 // 1 hour cache
     private let maxCacheSize = 50
 
+    /// TMDB serves snake_case; this maps it onto the camelCase DTOs in TMDBModels.swift.
+    private let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return decoder
+    }()
+
     init() {
-        // Configure URLSession for REST requests
         let config = URLSessionConfiguration.default
         config.httpMaximumConnectionsPerHost = 4
         config.timeoutIntervalForRequest = 15
@@ -32,6 +58,7 @@ class IMDbService: ObservableObject {
         case invalidURL
         case noData
         case invalidIMDbID
+        case missingAPIKey
         case apiError(String)
         case decodingError(Error)
         case networkError(Error)
@@ -41,186 +68,211 @@ class IMDbService: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .invalidURL:
-                return "Invalid IMDb API URL"
+                return "Invalid TMDB API URL"
             case .noData:
-                return "No data received from IMDb API"
+                return "No data received from TMDB"
             case .invalidIMDbID:
-                return "Invalid or missing IMDb ID"
+                return "Invalid or missing title ID"
+            case .missingAPIKey:
+                return "No TMDB access token configured. Add your token to Secrets.xcconfig."
             case .apiError(let message):
-                return "IMDb API error: \(message)"
+                return "TMDB API error: \(message)"
             case .decodingError(let error):
-                return "Failed to decode IMDb data: \(error.localizedDescription)"
+                return "Failed to decode TMDB data: \(error.localizedDescription)"
             case .networkError(let error):
                 return "Network error: \(error.localizedDescription)"
             case .httpError(let code):
-                return "HTTP error: \(code)"
+                return code == 401
+                    ? "TMDB rejected the access token (401). Check Secrets.xcconfig."
+                    : "HTTP error: \(code)"
             case .actorNotFound:
-                return "Actor not found in IMDb database"
+                return "Actor not found in the TMDB database"
             }
         }
     }
+
+    // MARK: - Configuration
+
+    /// The TMDB read-only access token, injected at build time. `nil` when unset or
+    /// still holding the placeholder from `Secrets.example.xcconfig`.
+    private var readToken: String? {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: "TMDB_READ_TOKEN") as? String else {
+            return nil
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "your_tmdb_read_access_token_here" else {
+            return nil
+        }
+        return trimmed
+    }
+
+    /// Whether metadata enrichment is available. Views can use this to hide
+    /// IMDb-powered sections instead of surfacing an error.
+    var isConfigured: Bool { readToken != nil }
 
     // MARK: - Public Methods
 
-    /// Search for a person by name (returns multiple potential matches)
-    /// Note: This method now requires additional context since the IMDb search API is broken
+    /// Search for a person by name. When a movie's IMDb ID is supplied, the search is
+    /// scoped to that film's billed cast, which disambiguates common names.
     func searchPerson(name: String, imdbMovieID: String? = nil) async throws -> IMDbPersonSearchResponse {
-        print("🔍 IMDb: Searching for person '\(name)'")
-        
-        // If we have a movie IMDb ID, search within that movie's cast
+        print("🔍 TMDB: Searching for person '\(name)'")
+
+        // Preferred path: match within the current film's cast.
         if let movieID = imdbMovieID {
             print("🎬 Using movie context: \(movieID)")
-            let actor = try await findActorInMovie(actorName: name, imdbMovieID: movieID)
-            if let actor = actor {
+            if let actor = try? await findActorInMovie(actorName: name, imdbMovieID: movieID) {
                 return IMDbPersonSearchResponse(results: [actor])
             }
+            print("↩️ No cast match; falling back to global person search")
         }
-        
-        // Fallback: Without working search API, we cannot find actors by name alone
-        // This should be handled by getting IMDb IDs from Plex metadata
-        throw IMDbError.actorNotFound
+
+        // Fallback: TMDB has a working person search (the old provider did not).
+        guard let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw IMDbError.actorNotFound
+        }
+
+        let response: TMDBPersonSearchResponse = try await fetch(
+            path: "/search/person",
+            query: "query=\(encoded)&include_adult=false"
+        )
+
+        guard !response.results.isEmpty else {
+            throw IMDbError.actorNotFound
+        }
+
+        return IMDbPersonSearchResponse(results: response.results.map { self.convertPersonSummary($0) })
     }
 
-    /// Get detailed information about a person by IMDb name ID (nm0000001 format)
+    /// Get detailed information about a person by TMDB person ID (or an `nm…` IMDb ID).
     func getPersonDetails(nameID: String) async throws -> IMDbPersonDetails {
-        print("🔍 IMDb: Getting person details for '\(nameID)'")
+        print("🔍 TMDB: Getting person details for '\(nameID)'")
 
-        // Check cache first
         let cacheKey = "person_\(nameID)"
         if let cached = cache[cacheKey] as? (data: IMDbPersonDetails, timestamp: Date) {
-            let age = Date().timeIntervalSince(cached.timestamp)
-            if age < cacheTimeout {
+            if Date().timeIntervalSince(cached.timestamp) < cacheTimeout {
                 print("🗄️ Using cached person details for \(nameID)")
                 return cached.data
             }
         }
 
-        let personInfo = try await fetchPersonDetails(nameID: nameID)
+        let personID = try await resolvePersonID(nameID)
+        let details: TMDBPersonDetails = try await fetch(path: "/person/\(personID)")
 
-        // Cache the result
-        cache[cacheKey] = (data: personInfo, timestamp: Date())
+        let converted = IMDbPersonDetails(
+            id: String(details.id),
+            name: details.name,
+            alternativeNames: details.alsoKnownAs,
+            biography: details.biography,
+            birthday: details.birthday,
+            deathday: details.deathday,
+            placeOfBirth: details.placeOfBirth,
+            profilePath: profileURLString(details.profilePath),
+            knownForDepartment: details.knownForDepartment,
+            popularity: details.popularity ?? 0.0,
+            heightCm: nil,      // TMDB does not expose height
+            birthName: nil,     // TMDB does not expose birth name
+            meterRanking: nil   // TMDB has no STARmeter equivalent; popularity is used instead
+        )
+
+        cache[cacheKey] = (data: converted, timestamp: Date())
         cleanupCache()
 
-        return personInfo
+        return converted
     }
 
-    /// Get movie credits for a person by IMDb name ID
+    /// Get a person's film credits, split into acting roles and crew roles.
     func getPersonMovieCredits(nameID: String) async throws -> IMDbPersonMovieCredits {
-        print("🔍 IMDb: Getting movie credits for '\(nameID)'")
+        print("🔍 TMDB: Getting movie credits for '\(nameID)'")
 
-        // Check cache first
         let cacheKey = "credits_\(nameID)"
         if let cached = cache[cacheKey] as? (data: IMDbPersonMovieCredits, timestamp: Date) {
-            let age = Date().timeIntervalSince(cached.timestamp)
-            if age < cacheTimeout {
+            if Date().timeIntervalSince(cached.timestamp) < cacheTimeout {
                 print("🗄️ Using cached movie credits for \(nameID)")
                 return cached.data
             }
         }
 
-        let knownForResponse = try await fetchPersonKnownFor(nameID: nameID)
-        let movieCredits = convertToMovieCredits(knownForResponse)
+        let personID = try await resolvePersonID(nameID)
+        let response: TMDBPersonMovieCreditsResponse = try await fetch(path: "/person/\(personID)/movie_credits")
 
-        // Cache the result
-        cache[cacheKey] = (data: movieCredits, timestamp: Date())
+        let cast: [IMDbMovieCredit] = (response.cast ?? []).map { credit in
+            IMDbMovieCredit(
+                id: String(credit.id),
+                title: credit.title ?? credit.originalTitle ?? "Unknown Title",
+                character: credit.character,
+                job: "Acting",
+                releaseDate: credit.releaseDate,
+                posterPath: posterURLString(credit.posterPath),
+                voteAverage: credit.voteAverage ?? 0.0,
+                popularity: credit.popularity ?? 0.0,
+                episodeCount: nil
+            )
+        }
+
+        let crew: [IMDbMovieCredit] = (response.crew ?? []).map { credit in
+            IMDbMovieCredit(
+                id: String(credit.id),
+                title: credit.title ?? credit.originalTitle ?? "Unknown Title",
+                character: nil,
+                job: credit.job,
+                releaseDate: credit.releaseDate,
+                posterPath: posterURLString(credit.posterPath),
+                voteAverage: credit.voteAverage ?? 0.0,
+                popularity: credit.popularity ?? 0.0,
+                episodeCount: nil
+            )
+        }
+
+        print("✅ Converted to \(cast.count) cast credits and \(crew.count) crew credits")
+
+        let converted = IMDbPersonMovieCredits(cast: cast, crew: crew)
+        cache[cacheKey] = (data: converted, timestamp: Date())
         cleanupCache()
 
-        return movieCredits
+        return converted
     }
-    
-    /// Get images for a person by IMDb name ID
+
+    /// Get gallery photos for a person.
     func getPersonImages(nameID: String) async throws -> [APIImage] {
-        print("🔍 IMDb: Getting images for '\(nameID)'")
-        
-        // Check cache first
+        print("🔍 TMDB: Getting images for '\(nameID)'")
+
         let cacheKey = "images_\(nameID)"
         if let cached = cache[cacheKey] as? (data: [APIImage], timestamp: Date) {
-            let age = Date().timeIntervalSince(cached.timestamp)
-            if age < cacheTimeout {
+            if Date().timeIntervalSince(cached.timestamp) < cacheTimeout {
                 print("🗄️ Using cached images for \(nameID)")
                 return cached.data
             }
         }
-        
-        guard let url = URL(string: "\(baseURL)/names/\(nameID)/images?pageSize=50") else {
-            throw IMDbError.invalidURL
+
+        let personID = try await resolvePersonID(nameID)
+        let response: TMDBPersonImagesResponse = try await fetch(path: "/person/\(personID)/images")
+
+        let images: [APIImage] = (response.profiles ?? []).compactMap { profile in
+            guard let url = profileURLString(profile.filePath) else { return nil }
+            return APIImage(url: url, width: profile.width, height: profile.height)
         }
-        
-        var request = URLRequest(url: url)
-        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
-        
-        let (data, response) = try await session.data(for: request)
-        
-        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-            throw IMDbError.httpError(httpResponse.statusCode)
-        }
-        
-        let imagesResponse = try JSONDecoder().decode(APIImagesResponse.self, from: data)
-        
-        // Cache the result
-        cache[cacheKey] = (data: imagesResponse.images, timestamp: Date())
+
+        cache[cacheKey] = (data: images, timestamp: Date())
         cleanupCache()
-        
-        return imagesResponse.images
-    }
-    
-    /// Get relationships for a person by IMDb name ID
-    func getPersonRelationships(nameID: String) async throws -> [APIRelationship] {
-        print("🔍 IMDb: Getting relationships for '\(nameID)'")
-        
-        // Check cache first
-        let cacheKey = "relationships_\(nameID)"
-        if let cached = cache[cacheKey] as? (data: [APIRelationship], timestamp: Date) {
-            let age = Date().timeIntervalSince(cached.timestamp)
-            if age < cacheTimeout {
-                print("🗄️ Using cached relationships for \(nameID)")
-                return cached.data
-            }
-        }
-        
-        guard let url = URL(string: "\(baseURL)/names/\(nameID)/relationships") else {
-            throw IMDbError.invalidURL
-        }
-        
-        var request = URLRequest(url: url)
-        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
-        
-        let (data, response) = try await session.data(for: request)
-        
-        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-            throw IMDbError.httpError(httpResponse.statusCode)
-        }
-        
-        let relationshipsResponse = try JSONDecoder().decode(APIRelationshipsResponse.self, from: data)
-        
-        // Cache the result
-        cache[cacheKey] = (data: relationshipsResponse.relationships, timestamp: Date())
-        cleanupCache()
-        
-        return relationshipsResponse.relationships
+
+        return images
     }
 
-    /// Get movie details by IMDb title ID (e.g., tt0063350)
+    /// Get movie details by IMDb title ID (e.g. `tt0063350`).
     func getMovieDetails(imdbID: String) async throws -> IMDbMovieDetails {
-        print("🎞️ IMDb: Fetching movie details for \(imdbID)")
-        let cacheKey = "movie_\(imdbID)"
-        if let cached = cache[cacheKey] as? (data: IMDbMovieDetails, timestamp: Date) {
-            if Date().timeIntervalSince(cached.timestamp) < cacheTimeout {
-                print("🗄️ Using cached movie details for \(imdbID)")
-                return cached.data
-            }
-        }
-
-        let details = try await fetchMovieDetails(titleID: imdbID)
-        cache[cacheKey] = (data: details, timestamp: Date())
-        cleanupCache()
-        return details
+        try await movieDetails(for: imdbID)
     }
 
-    /// Get top billed cast credits for a movie by IMDb title ID
+    /// Get movie details by TMDB movie ID, or an IMDb `tt…` ID.
+    func getMovieDetails(titleID: String) async throws -> IMDbMovieDetails {
+        try await movieDetails(for: titleID)
+    }
+
+    /// Get top-billed cast for a film, by IMDb title ID.
     func getMovieCast(imdbID: String, limit: Int = 10) async throws -> [APICredit] {
-        print("🎭 IMDb: Fetching movie cast for \(imdbID)")
-        let cacheKey = "movieCast_\(imdbID)"
+        print("🎭 TMDB: Fetching movie cast for \(imdbID)")
+
+        let cacheKey = "movieCast_\(imdbID)_\(limit)"
         if let cached = cache[cacheKey] as? (data: [APICredit], timestamp: Date) {
             if Date().timeIntervalSince(cached.timestamp) < cacheTimeout {
                 print("🗄️ Using cached cast for \(imdbID)")
@@ -228,468 +280,349 @@ class IMDbService: ObservableObject {
             }
         }
 
-        let creditsResponse = try await fetchCredits(imdbID: imdbID)
-        let actingCategories: Set<String> = ["ACTOR", "ACTRESS", "SELF"]
-        let cast = creditsResponse.credits.filter { credit in
-            guard let category = credit.category?.uppercased() else { return false }
-            return actingCategories.contains(category)
-        }
-        let limitedCast = Array(cast.prefix(limit))
-        cache[cacheKey] = (data: limitedCast, timestamp: Date())
-        cleanupCache()
-        return limitedCast
-    }
-    
-    /// Get trivia for a person by IMDb name ID
-    func getPersonTrivia(nameID: String) async throws -> [APITriviaItem] {
-        print("🔍 IMDb: Getting trivia for '\(nameID)'")
-        
-        // Check cache first
-        let cacheKey = "trivia_\(nameID)"
-        if let cached = cache[cacheKey] as? (data: [APITriviaItem], timestamp: Date) {
-            let age = Date().timeIntervalSince(cached.timestamp)
-            if age < cacheTimeout {
-                print("🗄️ Using cached trivia for \(nameID)")
-                return cached.data
-            }
-        }
-        
-        guard let url = URL(string: "\(baseURL)/names/\(nameID)/trivia?pageSize=50") else {
-            throw IMDbError.invalidURL
-        }
-        
-        var request = URLRequest(url: url)
-        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
-        
-        let (data, response) = try await session.data(for: request)
-        
-        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-            throw IMDbError.httpError(httpResponse.statusCode)
-        }
-        
-        let triviaResponse = try JSONDecoder().decode(APITriviaResponse.self, from: data)
-        
-        // Cache the result
-        cache[cacheKey] = (data: triviaResponse.trivia, timestamp: Date())
-        cleanupCache()
-        
-        return triviaResponse.trivia
-    }
+        let movieID = try await resolveMovieID(imdbID)
+        let response: TMDBMovieCreditsResponse = try await fetch(path: "/movie/\(movieID)/credits")
 
-    /// Get detailed information about a movie by IMDb title ID (tt0000001 format)
-    func getMovieDetails(titleID: String) async throws -> IMDbMovieDetails {
-        print("🔍 IMDb: Getting movie details for '\(titleID)'")
+        let ordered = (response.cast ?? []).sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
+        let result: [APICredit] = ordered.prefix(limit).map { self.convertCastMember($0) }
 
-        // Check cache first
-        let cacheKey = "movie_\(titleID)"
-        if let cached = cache[cacheKey] as? (data: IMDbMovieDetails, timestamp: Date) {
-            let age = Date().timeIntervalSince(cached.timestamp)
-            if age < cacheTimeout {
-                print("🗄️ Using cached movie details for \(titleID)")
-                return cached.data
-            }
-        }
-
-        let movieDetails = try await fetchMovieDetails(titleID: titleID)
-
-        // Cache the result
-        cache[cacheKey] = (data: movieDetails, timestamp: Date())
+        cache[cacheKey] = (data: result, timestamp: Date())
         cleanupCache()
 
-        return movieDetails
+        return result
     }
 
-    /// Search for a movie by title (for future use)
+    /// Search for a movie by title.
     func searchMovie(title: String, year: Int? = nil) async throws -> IMDbMovieSearchResponse {
-        print("🔍 IMDb: Searching for movie '\(title)'")
+        print("🔍 TMDB: Searching for movie '\(title)'")
 
-        // New API: /search/titles?query=...&limit=10
-        guard let encodedTitle = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "\(baseURL)/search/titles?query=\(encodedTitle)&limit=10") else {
+        guard let encoded = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             throw IMDbError.invalidURL
         }
 
-        var request = URLRequest(url: url)
-        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
-
-        let (data, response) = try await session.data(for: request)
-
-        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-            throw IMDbError.httpError(httpResponse.statusCode)
+        var query = "query=\(encoded)&include_adult=false"
+        if let year = year {
+            query += "&year=\(year)"
         }
 
-        let searchResponse = try JSONDecoder().decode(SearchTitlesResponse.self, from: data)
-        return IMDbMovieSearchResponse(results: searchResponse.titles.map { title in
+        let response: TMDBMovieSearchResponse = try await fetch(path: "/search/movie", query: query)
+
+        return IMDbMovieSearchResponse(results: response.results.map { movie in
             IMDbMovieSearchResult(
-                id: title.id,
-                title: title.primaryTitle ?? title.originalTitle ?? "Unknown Title",
-                releaseDate: title.startYear != nil ? "\(title.startYear!)" : nil,
-                overview: title.plot,
-                posterPath: title.primaryImage?.url,
-                voteAverage: title.rating?.aggregateRating ?? 0.0,
-                popularity: 0.0 // Not available in IMDb API
+                id: String(movie.id),
+                title: movie.title ?? movie.originalTitle ?? "Unknown Title",
+                releaseDate: movie.releaseDate,
+                overview: movie.overview,
+                posterPath: posterURLString(movie.posterPath),
+                voteAverage: movie.voteAverage ?? 0.0,
+                popularity: movie.popularity ?? 0.0
             )
         })
     }
 
-    /// Generate full URL for profile image
+    /// Build a profile image URL. Accepts either an absolute URL (as stored in this
+    /// service's domain models) or a bare TMDB path.
     func profileImageURL(path: String?, size: IMDbImageSize = .w500) -> URL? {
-        guard let path = path else { return nil }
-        return URL(string: path) // IMDb provides full URLs
+        imageURL(path: path, tmdbSize: size == .original ? "original" : defaultProfileSize)
     }
 
-    /// Generate full URL for poster image
+    /// Build a poster image URL. Accepts either an absolute URL or a bare TMDB path.
     func posterImageURL(path: String?, size: IMDbImageSize = .w342) -> URL? {
-        guard let path = path else { return nil }
-        return URL(string: path) // IMDb provides full URLs
+        imageURL(path: path, tmdbSize: size == .original ? "original" : size.rawValue)
     }
 
-    // MARK: - Private Methods
+    // MARK: - Private: networking
 
-    /// Find an actor by name within a specific movie's cast
-    private func findActorInMovie(actorName: String, imdbMovieID: String) async throws -> IMDbPersonSearchResult? {
-        print("🔍 Fetching credits for movie: \(imdbMovieID)")
-        
-        do {
-            let credits = try await fetchCredits(imdbID: imdbMovieID)
-            print("✅ Found \(credits.credits.count) total credits")
-            
-            // Log all categories to debug
-            let categories = Set(credits.credits.compactMap { $0.category })
-            print("📋 Categories found: \(categories.sorted())")
-            
-            // Log first few cast members to debug
-            let castMembers: [String] = credits.credits.prefix(5).compactMap { credit in
-                guard let name = credit.name else { return nil }
-                return "\(name.displayName) (\(credit.category ?? "unknown"))"
-            }
-            print("🎬 First cast members: \(castMembers)")
-            
-            // Find the actor in the movie's cast - use case-insensitive matching
-            let matchingActor = credits.credits.first { credit in
-                guard let creditName = credit.name else { return false }
-                
-                let category = (credit.category ?? "").uppercased()
-                let isActing = category == "ACTOR" || category == "ACTRESS" || category == "SELF"
-                
-                let actorNameLower = actorName.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                let creditNameLower = creditName.displayName.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                let nameMatches = creditNameLower.contains(actorNameLower) || 
-                                 actorNameLower.contains(creditNameLower) ||
-                                 creditNameLower == actorNameLower
-                
-                if nameMatches {
-                    print("🎯 Potential match found: '\(creditName.displayName)' (category: \(category), isActing: \(isActing))")
-                }
-                
-                return isActing && nameMatches
-            }
-            
-            guard let actor = matchingActor, let actorName = actor.name else {
-                print("❌ No matching actor found for '\(actorName)' in movie \(imdbMovieID)")
-                return nil
-            }
-            
-            print("✅ Found actor: \(actorName.displayName) (ID: \(actorName.id))")
-            
-            return IMDbPersonSearchResult(
-                id: actorName.id,
-                name: actorName.displayName,
-                profilePath: actorName.primaryImage?.url,
-                knownForDepartment: actor.category?.uppercased() == "ACTRESS" ? "Acting" : "Acting",
-                popularity: 0.0,
-                knownFor: []
-            )
-        } catch {
-            print("❌ Error fetching credits: \(error)")
-            throw error
+    private func fetch<T: Decodable>(path: String, query: String? = nil) async throws -> T {
+        guard let token = readToken else {
+            print("❌ TMDB: no access token configured")
+            throw IMDbError.missingAPIKey
         }
-    }
 
-    private func fetchPersonDetails(nameID: String) async throws -> IMDbPersonDetails {
-        guard let url = URL(string: "\(baseURL)/names/\(nameID)") else {
+        var urlString = baseURL + path
+        if let query = query, !query.isEmpty {
+            urlString += "?" + query
+        }
+
+        guard let url = URL(string: urlString) else {
             throw IMDbError.invalidURL
         }
 
         var request = URLRequest(url: url)
-        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
-
-        let (data, response) = try await session.data(for: request)
-
-        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-            throw IMDbError.httpError(httpResponse.statusCode)
-        }
-
-        let personInfo = try JSONDecoder().decode(APIName.self, from: data)
-
-        return IMDbPersonDetails(
-            id: personInfo.id,
-            name: personInfo.displayName,
-            alternativeNames: personInfo.alternativeNames,
-            biography: personInfo.biography,
-            birthday: formatDate(personInfo.birthDate),
-            deathday: formatDate(personInfo.deathDate),
-            placeOfBirth: personInfo.birthLocation,
-            profilePath: personInfo.primaryImage?.url,
-            knownForDepartment: personInfo.primaryProfessions?.first,
-            popularity: 0.0, // Not available in IMDb API
-            heightCm: personInfo.heightCm,
-            birthName: personInfo.birthName,
-            meterRanking: personInfo.meterRanking.map { apiRanking in
-                MeterRanking(
-                    currentRank: apiRanking.currentRank,
-                    changeDirection: apiRanking.changeDirection,
-                    difference: apiRanking.difference
-                )
-            }
-        )
-    }
-
-    private func fetchPersonKnownFor(nameID: String) async throws -> APIFilmographyResponse {
-        print("🔍 Fetching filmography for: \(nameID)")
-        
-        // Fetch all categories: ACTOR, ACTRESS, DIRECTOR, WRITER, PRODUCER, SELF
-        // Using pageSize=50 to get a good sample of their work
-        guard let url = URL(string: "\(baseURL)/names/\(nameID)/filmography?pageSize=50") else {
-            print("❌ Invalid URL for filmography")
-            throw IMDbError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
 
         do {
             let (data, response) = try await session.data(for: request)
 
-            if let httpResponse = response as? HTTPURLResponse {
-                print("📡 Filmography API response status: \(httpResponse.statusCode)")
-                if httpResponse.statusCode != 200 {
-                    if let responseString = String(data: data, encoding: .utf8) {
-                        print("❌ Error response: \(responseString.prefix(200))")
-                    }
-                    throw IMDbError.httpError(httpResponse.statusCode)
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                if let body = String(data: data, encoding: .utf8) {
+                    print("❌ TMDB \(httpResponse.statusCode) for \(path): \(body.prefix(200))")
                 }
+                throw IMDbError.httpError(httpResponse.statusCode)
             }
 
-            // Try to decode and log on error
             do {
-                let decoded = try JSONDecoder().decode(APIFilmographyResponse.self, from: data)
-                print("✅ Successfully decoded \(decoded.credits.count) filmography credits")
-                return decoded
+                return try decoder.decode(T.self, from: data)
             } catch {
-                print("❌ Filmography decoding error: \(error)")
-                if let decodingError = error as? DecodingError {
-                    switch decodingError {
-                    case .keyNotFound(let key, let context):
-                        print("   Missing key: '\(key.stringValue)' at \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
-                    case .typeMismatch(let type, let context):
-                        print("   Type mismatch for \(type) at \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
-                        print("   Expected: \(type)")
-                    case .valueNotFound(let type, let context):
-                        print("   Value not found for \(type) at \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
-                    case .dataCorrupted(let context):
-                        print("   Data corrupted at \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
-                        print("   Debug: \(context.debugDescription)")
-                    @unknown default:
-                        print("   Unknown decoding error")
-                    }
-                }
-                if let responseString = String(data: data, encoding: .utf8) {
-                    print("📄 Response data (first 1000 chars): \(responseString.prefix(1000))")
+                print("❌ TMDB decoding error for \(path): \(error)")
+                if let body = String(data: data, encoding: .utf8) {
+                    print("📄 Response (first 500 chars): \(body.prefix(500))")
                 }
                 throw IMDbError.decodingError(error)
             }
         } catch let error as IMDbError {
             throw error
         } catch {
-            print("❌ Network error fetching filmography: \(error)")
+            print("❌ TMDB network error for \(path): \(error)")
             throw IMDbError.networkError(error)
         }
     }
 
-    private func fetchCredits(imdbID: String) async throws -> APICreditsResponse {
-        // New API uses pageSize (camelCase)
-        guard let url = URL(string: "\(baseURL)/titles/\(imdbID)/credits?pageSize=50") else {
-            print("❌ Invalid URL for credits: \(baseURL)/titles/\(imdbID)/credits")
-            throw IMDbError.invalidURL
+    // MARK: - Private: ID resolution
+
+    /// Resolve an identifier to a TMDB movie ID. Accepts an IMDb `tt…` ID (resolved
+    /// through `/find`) or an existing numeric TMDB ID (used as-is).
+    private func resolveMovieID(_ identifier: String) async throws -> Int {
+        if let numeric = Int(identifier) {
+            return numeric
         }
 
-        var request = URLRequest(url: url)
-        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
-
-        do {
-            let (data, response) = try await session.data(for: request)
-
-            if let httpResponse = response as? HTTPURLResponse {
-                print("📡 Credits API response status: \(httpResponse.statusCode)")
-                if httpResponse.statusCode != 200 {
-                    if let responseString = String(data: data, encoding: .utf8) {
-                        print("❌ Error response: \(responseString.prefix(200))")
-                    }
-                    throw IMDbError.httpError(httpResponse.statusCode)
-                }
-            }
-
-            // Try to decode and log on error
-            do {
-                let decoded = try JSONDecoder().decode(APICreditsResponse.self, from: data)
-                print("✅ Successfully decoded \(decoded.credits.count) credits")
-                return decoded
-            } catch {
-                print("❌ Decoding error: \(error)")
-                if let responseString = String(data: data, encoding: .utf8) {
-                    print("📄 Response data: \(responseString.prefix(500))")
-                }
-                throw IMDbError.decodingError(error)
-            }
-        } catch let error as IMDbError {
-            throw error
-        } catch {
-            print("❌ Network error: \(error)")
-            throw IMDbError.networkError(error)
-        }
-    }
-
-    private func convertToMovieCredits(_ response: APIFilmographyResponse) -> IMDbPersonMovieCredits {
-        print("🎬 Converting \(response.credits.count) credits to movie credits")
-        
-        // Separate credits into cast (acting roles) and crew (behind-the-scenes roles)
-        let actingCategories = ["ACTOR", "ACTRESS", "SELF"]
-        
-        var castCredits: [IMDbMovieCredit] = []
-        var crewCredits: [IMDbMovieCredit] = []
-        
-        for credit in response.credits {
-            guard let title = credit.title else {
-                print("⚠️ Skipping credit with no title")
-                continue
-            }
-            
-            let categoryUpper = (credit.category ?? "").uppercased()
-            
-            let movieCredit = IMDbMovieCredit(
-                id: title.id,
-                title: title.primaryTitle ?? title.originalTitle ?? "Unknown Title",
-                character: credit.characters?.first,
-                job: credit.category,
-                releaseDate: title.startYear != nil ? "\(title.startYear!)" : nil,
-                posterPath: title.primaryImage?.url,
-                voteAverage: title.rating?.aggregateRating ?? 0.0,
-                popularity: 0.0, // Not available
-                episodeCount: credit.episodeCount
-            )
-            
-            // Categorize as cast or crew based on the category
-            if actingCategories.contains(categoryUpper) {
-                castCredits.append(movieCredit)
-            } else {
-                crewCredits.append(movieCredit)
-            }
-        }
-        
-        print("✅ Converted to \(castCredits.count) cast credits and \(crewCredits.count) crew credits")
-
-        return IMDbPersonMovieCredits(
-            cast: castCredits,
-            crew: crewCredits
-        )
-    }
-
-    private func formatDate(_ apiDate: APIPrecisionDate?) -> String? {
-        guard let apiDate = apiDate,
-              let year = apiDate.year else { return nil }
-
-        if let month = apiDate.month, let day = apiDate.day {
-            return String(format: "%04d-%02d-%02d", year, month, day)
-        } else {
-            return "\(year)"
-        }
-    }
-
-    private func cleanupCache() {
-        if cache.count > maxCacheSize {
-            // Remove oldest entries based on timestamp in the tuple value
-            let sortedEntries = cache.sorted { first, second in
-                first.value.timestamp < second.value.timestamp
-            }
-            // Keep only the most recent entries
-            cache = Dictionary(uniqueKeysWithValues: Array(sortedEntries.suffix(maxCacheSize)))
-        }
-    }
-
-    /// Fetch detailed movie information from IMDb API
-    private func fetchMovieDetails(titleID: String) async throws -> IMDbMovieDetails {
-        guard titleID.hasPrefix("tt") else {
+        guard identifier.hasPrefix("tt") else {
             throw IMDbError.invalidIMDbID
         }
 
-        guard let url = URL(string: "\(baseURL)/titles/\(titleID)") else {
-            throw IMDbError.invalidURL
+        let cacheKey = "findMovie_\(identifier)"
+        if let cached = cache[cacheKey] as? (data: Int, timestamp: Date) {
+            if Date().timeIntervalSince(cached.timestamp) < cacheTimeout {
+                return cached.data
+            }
         }
 
-        var request = URLRequest(url: url)
-        request.setValue("Castarr/1.0", forHTTPHeaderField: "User-Agent")
+        let response: TMDBFindResponse = try await fetch(
+            path: "/find/\(identifier)",
+            query: "external_source=imdb_id"
+        )
 
-        do {
-            let (data, response) = try await session.data(for: request)
+        guard let match = response.movieResults?.first ?? response.tvResults?.first else {
+            print("❌ TMDB: no title found for IMDb ID \(identifier)")
+            throw IMDbError.invalidIMDbID
+        }
 
-            if let httpResponse = response as? HTTPURLResponse {
-                if httpResponse.statusCode != 200 {
-                    throw IMDbError.httpError(httpResponse.statusCode)
-                }
+        cache[cacheKey] = (data: match.id, timestamp: Date())
+        cleanupCache()
+
+        return match.id
+    }
+
+    /// Resolve an identifier to a TMDB person ID. Accepts a numeric TMDB ID or an
+    /// IMDb `nm…` ID (resolved through `/find`).
+    private func resolvePersonID(_ identifier: String) async throws -> Int {
+        if let numeric = Int(identifier) {
+            return numeric
+        }
+
+        guard identifier.hasPrefix("nm") else {
+            throw IMDbError.actorNotFound
+        }
+
+        let cacheKey = "findPerson_\(identifier)"
+        if let cached = cache[cacheKey] as? (data: Int, timestamp: Date) {
+            if Date().timeIntervalSince(cached.timestamp) < cacheTimeout {
+                return cached.data
             }
+        }
 
-            // Parse the response with new API model
-            let apiResponse = try JSONDecoder().decode(APITitle.self, from: data)
-            
-            // Debug logging
-            print("🔍 DEBUG: API Response for \(titleID):")
-            print("   primaryTitle: '\(apiResponse.primaryTitle ?? "nil")'")
-            print("   originalTitle: '\(apiResponse.originalTitle ?? "nil")'")
-            print("   rating: \(apiResponse.rating?.aggregateRating ?? 0.0)")
-            print("   plot: '\(apiResponse.plot?.prefix(50) ?? "nil")...'")
-            
-            // Convert runtimeSeconds (API) -> minutes for our UI
-            let runtimeMinutes: Int? = {
-                if let seconds = apiResponse.runtimeSeconds { return max(1, seconds / 60) }
-                return nil
-            }()
+        let response: TMDBFindResponse = try await fetch(
+            path: "/find/\(identifier)",
+            query: "external_source=imdb_id"
+        )
 
-            return IMDbMovieDetails(
-                id: apiResponse.id,
-                title: apiResponse.primaryTitle ?? apiResponse.originalTitle ?? "Unknown Title",
-                originalTitle: apiResponse.originalTitle,
-                releaseDate: apiResponse.startYear != nil ? "\(apiResponse.startYear!)" : nil,
-                runtime: runtimeMinutes,
-                overview: apiResponse.plot,
-                tagline: nil, // Not available in this API
-                posterPath: apiResponse.primaryImage?.url,
-                backdropPath: nil, // Not available in this API
-                voteAverage: apiResponse.rating?.aggregateRating ?? 0.0,
-                voteCount: apiResponse.rating?.voteCount ?? 0,
-                popularity: 0.0, // Not available in this API
-                genres: apiResponse.genres?.enumerated().map { IMDbGenre(id: $0.offset + 1, name: $0.element) },
-                productionCountries: nil, // Not available in this API
-                spokenLanguages: nil, // Not available in this API
-                productionCompanies: nil, // Not available in this API
-                budget: nil, // Not available in this API
-                revenue: nil, // Not available in this API
-                status: nil, // Not available in this API
-                adult: apiResponse.isAdult ?? false
-            )
+        guard let match = response.personResults?.first else {
+            print("❌ TMDB: no person found for IMDb ID \(identifier)")
+            throw IMDbError.actorNotFound
+        }
 
-        } catch let decodingError as DecodingError {
-            print("❌ Failed to decode movie details: \(decodingError)")
-            throw IMDbError.decodingError(decodingError)
-        } catch {
-            print("❌ Network error fetching movie details: \(error)")
-            throw IMDbError.networkError(error)
+        cache[cacheKey] = (data: match.id, timestamp: Date())
+        cleanupCache()
+
+        return match.id
+    }
+
+    // MARK: - Private: lookups
+
+    private func movieDetails(for identifier: String) async throws -> IMDbMovieDetails {
+        print("🎞️ TMDB: Fetching movie details for \(identifier)")
+
+        let cacheKey = "movie_\(identifier)"
+        if let cached = cache[cacheKey] as? (data: IMDbMovieDetails, timestamp: Date) {
+            if Date().timeIntervalSince(cached.timestamp) < cacheTimeout {
+                print("🗄️ Using cached movie details for \(identifier)")
+                return cached.data
+            }
+        }
+
+        let movieID = try await resolveMovieID(identifier)
+        let details: TMDBMovieDetails = try await fetch(path: "/movie/\(movieID)")
+
+        let converted = IMDbMovieDetails(
+            id: String(details.id),
+            title: details.title ?? details.originalTitle ?? "Unknown Title",
+            originalTitle: details.originalTitle,
+            releaseDate: details.releaseDate,
+            runtime: details.runtime,
+            overview: details.overview,
+            tagline: (details.tagline?.isEmpty == false) ? details.tagline : nil,
+            posterPath: posterURLString(details.posterPath),
+            backdropPath: posterURLString(details.backdropPath),
+            voteAverage: details.voteAverage ?? 0.0,
+            voteCount: details.voteCount ?? 0,
+            popularity: details.popularity ?? 0.0,
+            genres: details.genres?.map { IMDbGenre(id: $0.id, name: $0.name) },
+            productionCountries: details.productionCountries?.compactMap { country in
+                guard let name = country.name else { return nil }
+                return IMDbProductionCountry(iso31661: country.iso31661 ?? "", name: name)
+            },
+            spokenLanguages: details.spokenLanguages?.compactMap { language in
+                guard let name = language.name else { return nil }
+                return IMDbSpokenLanguage(iso6391: language.iso6391 ?? "", name: name)
+            },
+            productionCompanies: details.productionCompanies?.map { company in
+                IMDbProductionCompany(
+                    id: company.id,
+                    name: company.name,
+                    logoPath: posterURLString(company.logoPath),
+                    originCountry: company.originCountry ?? ""
+                )
+            },
+            budget: details.budget,
+            revenue: details.revenue,
+            status: details.status,
+            adult: details.adult ?? false
+        )
+
+        cache[cacheKey] = (data: converted, timestamp: Date())
+        cleanupCache()
+
+        return converted
+    }
+
+    /// Find an actor by name within a specific film's billed cast.
+    private func findActorInMovie(actorName: String, imdbMovieID: String) async throws -> IMDbPersonSearchResult? {
+        print("🔍 Fetching credits for movie: \(imdbMovieID)")
+
+        let movieID = try await resolveMovieID(imdbMovieID)
+        let response: TMDBMovieCreditsResponse = try await fetch(path: "/movie/\(movieID)/credits")
+        let cast = response.cast ?? []
+
+        print("✅ Found \(cast.count) cast members")
+
+        let target = actorName.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let match = cast.first { member in
+            let candidate = member.name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            return candidate == target
+                || candidate.contains(target)
+                || target.contains(candidate)
+        }
+
+        guard let match = match else {
+            print("❌ No matching actor found for '\(actorName)' in \(imdbMovieID)")
+            return nil
+        }
+
+        print("✅ Found actor: \(match.name) (TMDB ID: \(match.id))")
+
+        return IMDbPersonSearchResult(
+            id: String(match.id),
+            name: match.name,
+            profilePath: profileURLString(match.profilePath),
+            knownForDepartment: match.knownForDepartment ?? "Acting",
+            popularity: 0.0,
+            knownFor: []
+        )
+    }
+
+    // MARK: - Private: conversion helpers
+
+    private func convertPersonSummary(_ person: TMDBPersonSummary) -> IMDbPersonSearchResult {
+        IMDbPersonSearchResult(
+            id: String(person.id),
+            name: person.name,
+            profilePath: profileURLString(person.profilePath),
+            knownForDepartment: person.knownForDepartment ?? "Acting",
+            popularity: person.popularity ?? 0.0,
+            knownFor: []
+        )
+    }
+
+    private func convertCastMember(_ member: TMDBMovieCastMember) -> APICredit {
+        let name = APIName(
+            id: String(member.id),
+            displayName: member.name,
+            alternativeNames: nil,
+            primaryImage: profileURLString(member.profilePath).map {
+                APIImage(url: $0, width: nil, height: nil)
+            },
+            primaryProfessions: member.knownForDepartment.map { [$0] },
+            biography: nil,
+            heightCm: nil,
+            birthName: nil,
+            birthDate: nil,
+            birthLocation: nil,
+            deathDate: nil,
+            deathLocation: nil,
+            deathReason: nil,
+            meterRanking: nil
+        )
+
+        return APICredit(
+            title: nil,
+            name: name,
+            category: "ACTOR",
+            characters: member.character.map { [$0] },
+            episodeCount: nil
+        )
+    }
+
+    // MARK: - Private: image URLs
+
+    /// Absolute URL string for a TMDB profile path, at the default profile size.
+    private func profileURLString(_ path: String?) -> String? {
+        absoluteImageURLString(path, size: defaultProfileSize)
+    }
+
+    /// Absolute URL string for a TMDB poster/backdrop path, at the default poster size.
+    private func posterURLString(_ path: String?) -> String? {
+        absoluteImageURLString(path, size: defaultPosterSize)
+    }
+
+    private func absoluteImageURLString(_ path: String?, size: String) -> String? {
+        guard let path = path, !path.isEmpty else { return nil }
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            return path
+        }
+        let normalized = path.hasPrefix("/") ? path : "/" + path
+        return "\(imageBaseURL)/\(size)\(normalized)"
+    }
+
+    private func imageURL(path: String?, tmdbSize: String) -> URL? {
+        guard let string = absoluteImageURLString(path, size: tmdbSize) else { return nil }
+        return URL(string: string)
+    }
+
+    // MARK: - Private: cache
+
+    private func cleanupCache() {
+        if cache.count > maxCacheSize {
+            let sortedEntries = cache.sorted { $0.value.timestamp < $1.value.timestamp }
+            cache = Dictionary(uniqueKeysWithValues: Array(sortedEntries.suffix(maxCacheSize)))
         }
     }
 }
 
-// MARK: - IMDb Image Sizes
+// MARK: - Image Sizes
 enum IMDbImageSize: String {
     case w92 = "w92"
     case w154 = "w154"

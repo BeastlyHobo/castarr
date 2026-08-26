@@ -1,5 +1,7 @@
-# Note: Config files no longer needed after TMDB → IMDb refactor
-# Config.plist
+# Secrets — never commit real credentials.
+# Copy Secrets.example.xcconfig to Secrets.xcconfig and add your TMDB token.
+Secrets.xcconfig
+Config.plist
 
 # Xcode
 #

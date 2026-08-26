@@ -118,7 +118,14 @@ struct PlexCapabilitiesResponse: Codable {
     }
 }
 
-// MARK: - New IMDb API (imdbapi.dev) Models
+// MARK: - Shared metadata models
+//
+// These originated as imdbapi.dev wire models. That provider shut down in July 2026
+// and TMDB is now the data source (see TMDBModels.swift + IMDbService.swift), but
+// APIImage / APIName / APICredit / APITitle remain in use as the app's internal
+// representation of people and credits. The response envelopes below
+// (SearchTitlesResponse, APIFilmographyResponse, APICreditsResponse, APIImagesResponse,
+// APIRelationshipsResponse, APITriviaResponse) are legacy and no longer decoded.
 
 // Search Titles Response
 struct SearchTitlesResponse: Codable {

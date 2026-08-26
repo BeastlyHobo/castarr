@@ -24,5 +24,7 @@
 		<key>UIColorName</key>
 		<string>CastarrBackground</string>
 	</dict>
+	<key>TMDB_READ_TOKEN</key>
+	<string>$(TMDB_READ_TOKEN)</string>
 </dict>
 </plist>

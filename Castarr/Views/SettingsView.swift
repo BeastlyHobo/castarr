@@ -101,6 +101,26 @@ struct SettingsView: View {
                     }
                     .listRowBackground(Theme.Colors.surface.opacity(0.85))
                 }
+
+                Section(header: Text("About").foregroundColor(Theme.Colors.highlight)) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Cast, crew, and film details")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(Theme.Colors.text)
+
+                        // Attribution required by the TMDB API terms of use.
+                        Text("This product uses the TMDB API but is not endorsed or certified by TMDB.")
+                            .font(.caption)
+                            .foregroundColor(Theme.Colors.highlight)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Link("themoviedb.org", destination: URL(string: "https://www.themoviedb.org")!)
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(Theme.Colors.secondaryAccent)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .listRowBackground(Theme.Colors.surface.opacity(0.85))
             }
             .scrollContentBackground(.hidden)
             .background(Theme.Colors.background)

@@ -18,7 +18,6 @@ struct ActorDetailView: View {
     @State private var actorDetails: IMDbPersonDetails?
     @State private var movieCredits: IMDbPersonMovieCredits?
     @State private var actorImages: [APIImage] = []
-    @State private var actorTrivia: [APITriviaItem] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var showingActorPosterDetail = false
@@ -87,7 +86,7 @@ struct ActorDetailView: View {
         }
         .sheet(item: $selectedMovie) { movie in
             // Try to find matching Plex metadata for this movie
-            let matchingPlexMetadata = findMatchingPlexMetadata(for: movie.id)
+            let matchingPlexMetadata = findMatchingPlexMetadata(for: movie.title)
             MovieDetailView(
                 movieId: movie.id,
                 imdbService: imdbService,
@@ -109,10 +108,6 @@ struct ActorDetailView: View {
 
                     if let credits = movieCredits {
                         filmographySection(credits: credits)
-                    }
-
-                    if !actorTrivia.isEmpty {
-                        triviaSection(trivia: actorTrivia)
                     }
                 }
             }
@@ -163,18 +158,13 @@ struct ActorDetailView: View {
                         .clipShape(Capsule())
                 }
 
-                if let ranking = details.meterRanking, let rank = ranking.currentRank {
+                if details.popularity > 0 {
                     HStack(spacing: 6) {
-                        Image(systemName: ranking.isRising ? "chart.line.uptrend.xyaxis" : ranking.isFalling ? "chart.line.downtrend.xyaxis" : "chart.bar.fill")
+                        Image(systemName: "chart.line.uptrend.xyaxis")
                             .foregroundColor(Theme.Colors.secondaryAccent)
-                        Text("IMDb STARmeter #\(rank)")
+                        Text("Popularity \(formatRating(details.popularity))")
                             .font(.subheadline.weight(.semibold))
                             .foregroundColor(Theme.Colors.text)
-                        if let diff = ranking.difference, diff > 0 {
-                            Text(ranking.isRising ? "+\(diff)" : "-\(diff)")
-                                .font(.caption.weight(.semibold))
-                                .foregroundColor(ranking.isRising ? .green : .red)
-                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
@@ -216,15 +206,15 @@ struct ActorDetailView: View {
     private func getFilteredTopMovies(from credits: IMDbPersonMovieCredits) -> [IMDbMovieCredit] {
         let allMovies = credits.cast
         let filteredMovies = allMovies.filter { movie in
-            // Filter out the current movie if we know its IMDb ID
-            if let currentMovieID = movieIMDbID {
-                let shouldExclude = movie.id == currentMovieID
-                if shouldExclude {
-                    print("🎬 Filtering out current movie '\(movie.title)' (ID: \(movie.id)) from Known For list")
-                }
-                return !shouldExclude
+            // Exclude the film currently playing. Credits come from TMDB (numeric IDs)
+            // while Plex reports IMDb IDs, so the two never compare directly — match
+            // on title instead.
+            guard let currentTitle = currentMovieTitle else { return true }
+            let shouldExclude = movie.title.caseInsensitiveCompare(currentTitle) == .orderedSame
+            if shouldExclude {
+                print("🎬 Filtering out current movie '\(movie.title)' from Known For list")
             }
-            return true
+            return !shouldExclude
         }
         
         print("🎬 Known For: Showing \(min(filteredMovies.count, 10)) of \(filteredMovies.count) movies (filtered from \(allMovies.count) total)")
@@ -261,31 +251,6 @@ struct ActorDetailView: View {
                     }
                 }
                 .padding(.horizontal, 4)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func triviaSection(trivia: [APITriviaItem]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Trivia")
-                .font(.title2.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(spacing: 10) {
-                ForEach(trivia.prefix(5)) { item in
-                    Text(item.text)
-                        .font(.body)
-                        .foregroundColor(Theme.Colors.text)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
-                        .background(Theme.Colors.surface.opacity(0.7))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Theme.Colors.highlight.opacity(0.12), lineWidth: 1)
-                        )
-                }
             }
         }
     }
@@ -390,14 +355,21 @@ struct ActorDetailView: View {
         }
     }
 
-    private func findMatchingPlexMetadata(for imdbMovieId: String) -> MovieMetadata? {
-        // If the selected movie ID matches the current movie's IMDb ID, return the current movie metadata
-        if let currentMovieIMDbID = movieIMDbID, currentMovieIMDbID == imdbMovieId {
+    /// The title of the film currently playing, used to exclude it from "Known For".
+    private var currentMovieTitle: String? {
+        movieMetadata?.title
+    }
+
+    private func findMatchingPlexMetadata(for selectedTitle: String) -> MovieMetadata? {
+        // Credits are TMDB-sourced, so their IDs never match Plex's IMDb GUIDs.
+        // Match on title to recognise the film that is already playing.
+        if let currentTitle = currentMovieTitle,
+           currentTitle.caseInsensitiveCompare(selectedTitle) == .orderedSame {
             return movieMetadata
         }
-        
-        // For now, we can't find other movies' Plex metadata without a service reference
-        // In a future enhancement, we could pass a PlexService reference to look up other movies
+
+        // Other films aren't in the Plex library context here; MovieDetailView
+        // falls back to TMDB-only data when this is nil.
         return nil
     }
 
@@ -436,21 +408,18 @@ struct ActorDetailView: View {
 
             let nameID = firstResult.id
 
-            // Fetch all data in parallel; images and trivia failures are non-fatal
+            // Fetch in parallel; the photo gallery is optional so its failure is non-fatal
             async let detailsTask = imdbService.getPersonDetails(nameID: nameID)
             async let creditsTask = imdbService.getPersonMovieCredits(nameID: nameID)
             async let imagesTask = imdbService.getPersonImages(nameID: nameID)
-            async let triviaTask = imdbService.getPersonTrivia(nameID: nameID)
 
             let (details, credits) = try await (detailsTask, creditsTask)
             let images = (try? await imagesTask) ?? []
-            let trivia = (try? await triviaTask) ?? []
 
             await MainActor.run {
                 self.actorDetails = details
                 self.movieCredits = credits
                 self.actorImages = images.filter { $0.url != nil }
-                self.actorTrivia = trivia
                 self.isLoading = false
             }
 
